@@ -1,0 +1,609 @@
+package org.rsscount.service;
+
+import com.rometools.rome.feed.synd.SyndCategory;
+import com.rometools.rome.feed.synd.SyndContent;
+import com.rometools.rome.feed.synd.SyndEntry;
+import com.rometools.rome.feed.synd.SyndFeed;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.MockedStatic;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.rsscount.entity.News;
+import org.rsscount.entity.Report;
+import org.rsscount.entity.RssSource;
+import org.rsscount.util.SimHash;
+import org.rsscount.util.TextCleaner;
+
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
+
+/**
+ * RssFetchService 单元测试。
+ *
+ * <p>覆盖：
+ * <ul>
+ *   <li>I2-1: RSS 2.0 feed 解析</li>
+ *   <li>I2-2: Atom feed 解析</li>
+ *   <li>I2-3: 并发拉取多个源</li>
+ *   <li>I4-1: URL 去重</li>
+ *   <li>I4-2: 标题 + SimHash 去重</li>
+ * </ul>
+ * </p>
+ */
+@ExtendWith(MockitoExtension.class)
+@DisplayName("RssFetchService")
+class RssFetchServiceTest {
+
+    RssFetchService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new RssFetchService();
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // I4-1: URL 去重
+    // ═══════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("I4-1: URL 去重")
+    class UrlDedup {
+
+        @Test
+        @DisplayName("相同 URL → level 1 重复")
+        void sameUrlIsLevel1Duplicate() {
+            News candidate = createNews("标题A", "https://example.com/article/1", "内容A", 100);
+            News existing = createNews("标题B", "https://example.com/article/1", "内容B", 200);
+
+            var result = service.checkDuplicate(candidate, List.of(existing));
+
+            assertTrue(result.isDuplicate());
+            assertEquals(1, result.level());
+            assertSame(existing, result.existing());
+        }
+
+        @Test
+        @DisplayName("不同 URL → 不重复（仅 URL 层面）")
+        void differentUrlNotDuplicateByUrl() {
+            News candidate = createNews("标题A", "https://example.com/a", "内容", 100);
+            News existing = createNews("标题B", "https://example.com/b", "内容", 100);
+
+            var result = service.checkDuplicate(candidate, List.of(existing));
+
+            // URL 不同，但标题不同、SimHash 不同 → 不重复
+            assertFalse(result.isDuplicate());
+        }
+
+        @Test
+        @DisplayName("候选 URL 为 null → 跳过 URL 检查")
+        void nullUrlSkipsLevel1() {
+            News candidate = createNews("标题", null, "内容", 100);
+            candidate.sourceUrl = null;
+            News existing = createNews("标题", "https://example.com/other", "内容", 100);
+
+            var result = service.checkDuplicate(candidate, List.of(existing));
+
+            // 标题相同 → level 2 命中
+            assertTrue(result.isDuplicate());
+            assertEquals(2, result.level());
+        }
+
+        @Test
+        @DisplayName("候选 URL 为空 → 跳过 URL 检查")
+        void blankUrlSkipsLevel1() {
+            News candidate = createNews("标题", "", "内容", 100);
+            News existing = createNews("标题", "https://example.com/other", "内容", 100);
+
+            var result = service.checkDuplicate(candidate, List.of(existing));
+
+            assertTrue(result.isDuplicate());
+            assertEquals(2, result.level());
+        }
+
+        @Test
+        @DisplayName("空列表 → 不重复")
+        void emptyListNotDuplicate() {
+            News candidate = createNews("标题", "https://example.com/a", "内容", 100);
+
+            var result = service.checkDuplicate(candidate, List.of());
+
+            assertFalse(result.isDuplicate());
+        }
+
+        @Test
+        @DisplayName("null 列表 → 不重复")
+        void nullListNotDuplicate() {
+            News candidate = createNews("标题", "https://example.com/a", "内容", 100);
+
+            var result = service.checkDuplicate(candidate, null);
+
+            assertFalse(result.isDuplicate());
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // I4-2: 标题 + SimHash 去重
+    // ═══════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("I4-2: 标题 + SimHash 去重")
+    class TitleAndSimHashDedup {
+
+        @Test
+        @DisplayName("相同清洗后标题 → level 2 重复")
+        void sameCleanedTitleIsLevel2Duplicate() {
+            // TextCleaner 会把 【快讯】 前缀去掉，所以清洗后相同
+            News candidate = createNews("【快讯】AI行业迎来新突破", "https://a.com/1", "c", 100);
+            News existing = createNews("AI行业迎来新突破", "https://b.com/2", "d", 200);
+
+            var result = service.checkDuplicate(candidate, List.of(existing));
+
+            assertTrue(result.isDuplicate());
+            assertEquals(2, result.level());
+        }
+
+        @Test
+        @DisplayName("SimHash 距离 ≤ 3 → level 3 重复")
+        void simHashWithinThresholdIsLevel3Duplicate() {
+            // 使用非常相似的文本，确保 SimHash 距离 ≤ 3
+            String text1 = "北京今日天气晴好气温适宜出行";
+            String text2 = "北京今天天气晴好气温适宜出行";  // "今日" → "今天"
+            long hash1 = SimHash.compute(text1);
+            long hash2 = SimHash.compute(text2);
+
+            News candidate = createNewsWithSimHash("标题C", "https://c.com/1", text1, 100, hash1);
+            News existing = createNewsWithSimHash("标题D", "https://d.com/2", text2, 200, hash2);
+
+            var result = service.checkDuplicate(candidate, List.of(existing));
+
+            assertTrue(result.isDuplicate());
+            assertEquals(3, result.level());
+        }
+
+        @Test
+        @DisplayName("SimHash 距离 > 3 → 不重复")
+        void simHashAboveThresholdNotDuplicate() {
+            // 完全不同的文本
+            long hash1 = SimHash.compute("北京今日天气晴好气温适宜出行");
+            long hash2 = SimHash.compute("Python 3.13 发布带来诸多性能改进和新特性");
+
+            News candidate = createNewsWithSimHash("标题E", "https://e.com/1", "北京今日天气晴好", 100, hash1);
+            News existing = createNewsWithSimHash("标题F", "https://f.com/2", "Python 发布", 200, hash2);
+
+            var result = service.checkDuplicate(candidate, List.of(existing));
+
+            assertFalse(result.isDuplicate());
+        }
+
+        @Test
+        @DisplayName("SimHash 为 null → 跳过 level 3")
+        void nullSimHashSkipsLevel3() {
+            News candidate = createNewsWithSimHash("标题G", "https://g.com/1", "内容", 100, null);
+            News existing = createNewsWithSimHash("标题H", "https://h.com/2", "其他内容", 200, 12345L);
+
+            var result = service.checkDuplicate(candidate, List.of(existing));
+
+            // URL 不同、标题不同、SimHash 跳过 → 不重复
+            assertFalse(result.isDuplicate());
+        }
+
+        @Test
+        @DisplayName("SimHash 为 0 → 跳过 level 3")
+        void zeroSimHashSkipsLevel3() {
+            News candidate = createNewsWithSimHash("标题I", "https://i.com/1", "内容", 100, 0L);
+            News existing = createNewsWithSimHash("标题J", "https://j.com/2", "其他", 200, 0L);
+
+            var result = service.checkDuplicate(candidate, List.of(existing));
+
+            // URL 不同、标题不同、SimHash 都是 0 → 跳过 → 不重复
+            assertFalse(result.isDuplicate());
+        }
+
+        @Test
+        @DisplayName("完全不同新闻 → 三级都不命中")
+        void completelyDifferentNewsNotDeduped() {
+            News candidate = createNews("独一无二的标题ABC", "https://unique.com/article", "独特内容", 300);
+            News existing = createNews("完全不同的标题XYZ", "https://different.com/post", "不同内容", 500);
+
+            var result = service.checkDuplicate(candidate, List.of(existing));
+
+            assertFalse(result.isDuplicate());
+            assertEquals(0, result.level());
+        }
+
+        @Test
+        @DisplayName("去重优先级：URL > 标题 > SimHash")
+        void dedupPriorityOrder() {
+            // 构造一个同时匹配 URL 和标题的情况
+            String sameUrl = "https://same.com/article";
+
+            News candidate = createNews("AI行业新突破", sameUrl, "新内容", 300);
+            candidate.simHash = SimHash.compute("AI行业新突破 新内容");
+
+            News existing = createNews("AI行业新突破", sameUrl, "旧内容", 100);
+            existing.simHash = SimHash.compute("AI行业新突破 旧内容");
+
+            // 应该先命中 URL (level 1)，而不是标题 (level 2)
+            var result = service.checkDuplicate(candidate, List.of(existing));
+
+            assertTrue(result.isDuplicate());
+            assertEquals(1, result.level());  // level 1 优先
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // I2-1: RSS 2.0 解析
+    // ═══════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("I2-1: RSS 2.0 feed 解析")
+    class Rss2Parsing {
+
+        private RssSource source;
+        private Report report;
+
+        @BeforeEach
+        void setUp() {
+            source = new RssSource();
+            source.id = 1L;
+            source.name = "36氪";
+            source.url = "https://36kr.com/feed";
+
+            report = new Report();
+            report.id = 10L;
+            report.name = "测试报告";
+        }
+
+        @Test
+        @DisplayName("标准 RSS 2.0 条目（有 description，无 content:encoded）")
+        void parseStandardRss2Entry() {
+            SyndEntry mockEntry = mock(SyndEntry.class);
+            SyndContent description = mock(SyndContent.class);
+
+            when(mockEntry.getTitle()).thenReturn("AI行业迎来重大突破");
+            when(mockEntry.getLink()).thenReturn("https://36kr.com/p/12345");
+            when(mockEntry.getDescription()).thenReturn(description);
+            when(description.getValue()).thenReturn("这是一篇关于AI行业的深度报道摘要");
+
+            // RSS 2.0: contents 可能为空
+            when(mockEntry.getContents()).thenReturn(Collections.emptyList());
+
+            when(mockEntry.getAuthor()).thenReturn("张三");
+            when(mockEntry.getPublishedDate()).thenReturn(new Date());
+            when(mockEntry.getCategories()).thenReturn(List.of());
+
+            News news = service.syndEntryToNews(mockEntry, source, report);
+
+            assertThat(news.title).isEqualTo(TextCleaner.clean("AI行业迎来重大突破"));
+            assertThat(news.sourceUrl).isEqualTo("https://36kr.com/p/12345");
+            assertThat(news.sourceRssName).isEqualTo("36氪");
+            assertThat(news.summary).isEqualTo("这是一篇关于AI行业的深度报道摘要");
+            assertThat(news.rawContent).isEqualTo("这是一篇关于AI行业的深度报道摘要"); // fallback to description
+            assertThat(news.author).isEqualTo("张三");
+            assertThat(news.report).isSameAs(report);
+            assertThat(news.sourceRss).isSameAs(source);
+            assertThat(news.contentLength).isGreaterThan(0);
+            assertThat(news.simHash).isNotNull();
+        }
+
+        @Test
+        @DisplayName("RSS 2.0 条目（有 content:encoded + description）")
+        void parseRss2WithContentEncoded() {
+            SyndEntry mockEntry = mock(SyndEntry.class);
+            SyndContent description = mock(SyndContent.class);
+            SyndContent contentEncoded = mock(SyndContent.class);
+
+            when(mockEntry.getTitle()).thenReturn("科技行业日报");
+            when(mockEntry.getLink()).thenReturn("https://example.com/rss/item1");
+            when(mockEntry.getDescription()).thenReturn(description);
+            when(description.getValue()).thenReturn("简短摘要");
+
+            // content:encoded 有完整正文（RSS 2.0 扩展）
+            when(mockEntry.getContents()).thenReturn(List.of(contentEncoded));
+            when(contentEncoded.getValue()).thenReturn("这是完整的正文内容，包含更多细节信息...");
+
+            when(mockEntry.getAuthor()).thenReturn("李四");
+            when(mockEntry.getPublishedDate()).thenReturn(new Date());
+            when(mockEntry.getCategories()).thenReturn(List.of());
+
+            News news = service.syndEntryToNews(mockEntry, source, report);
+
+            // 正文应优先取 content:encoded
+            assertThat(news.rawContent).isEqualTo("这是完整的正文内容，包含更多细节信息...");
+            assertThat(news.summary).isEqualTo("简短摘要");
+            assertThat(news.contentLength).isEqualTo("这是完整的正文内容，包含更多细节信息...".length());
+        }
+
+        @Test
+        @DisplayName("RSS 2.0 条目（无作者 → 默认'未知'）")
+        void parseRss2EntryWithoutAuthor() {
+            SyndEntry mockEntry = mock(SyndEntry.class);
+
+            when(mockEntry.getTitle()).thenReturn("测试标题");
+            when(mockEntry.getLink()).thenReturn("https://example.com/rss/item2");
+            when(mockEntry.getDescription()).thenReturn(null);
+            when(mockEntry.getContents()).thenReturn(Collections.emptyList());
+            when(mockEntry.getAuthor()).thenReturn(null);  // 无作者
+            when(mockEntry.getPublishedDate()).thenReturn(null);
+            when(mockEntry.getCategories()).thenReturn(List.of());
+
+            News news = service.syndEntryToNews(mockEntry, source, report);
+
+            assertThat(news.author).isEqualTo("未知");
+            assertThat(news.rawContent).isNull();
+            assertThat(news.contentLength).isEqualTo(0);
+            assertThat(news.publishedAt).isNull();
+        }
+
+        @Test
+        @DisplayName("RSS 2.0 条目（有分类）")
+        void parseRss2EntryWithCategory() {
+            SyndEntry mockEntry = mock(SyndEntry.class);
+            SyndCategory category = mock(SyndCategory.class);
+
+            when(mockEntry.getTitle()).thenReturn("分类新闻测试");
+            when(mockEntry.getLink()).thenReturn("https://example.com/rss/item3");
+            when(mockEntry.getDescription()).thenReturn(null);
+            when(mockEntry.getContents()).thenReturn(Collections.emptyList());
+            when(mockEntry.getAuthor()).thenReturn("王五");
+            when(mockEntry.getPublishedDate()).thenReturn(new Date());
+            when(mockEntry.getCategories()).thenReturn(List.of(category));
+            when(category.getName()).thenReturn("科技");
+
+            News news = service.syndEntryToNews(mockEntry, source, report);
+
+            assertThat(news.category).isEqualTo("科技");
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // I2-2: Atom feed 解析
+    // ═══════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("I2-2: Atom feed 解析")
+    class AtomParsing {
+
+        private RssSource source;
+        private Report report;
+
+        @BeforeEach
+        void setUp() {
+            source = new RssSource();
+            source.id = 2L;
+            source.name = "TechBlog Atom";
+            source.url = "https://techblog.com/atom.xml";
+
+            report = new Report();
+            report.id = 11L;
+            report.name = "测试报告";
+        }
+
+        @Test
+        @DisplayName("标准 Atom 条目（content + summary 分离）")
+        void parseStandardAtomEntry() {
+            SyndEntry mockEntry = mock(SyndEntry.class);
+            SyndContent summary = mock(SyndContent.class);
+            SyndContent content = mock(SyndContent.class);
+
+            when(mockEntry.getTitle()).thenReturn("Atom Feed 测试标题");
+            when(mockEntry.getLink()).thenReturn("https://techblog.com/posts/atom-post-1");
+            // Atom: description/summary 是简短摘要
+            when(mockEntry.getDescription()).thenReturn(summary);
+            when(summary.getValue()).thenReturn("这是一条 Atom feed 的摘要文本");
+
+            // Atom: contents[0] 是完整正文
+            when(mockEntry.getContents()).thenReturn(List.of(content));
+            when(content.getValue()).thenReturn("<div>完整的HTML正文内容，Atom格式通常包含丰富的HTML内容</div>");
+
+            when(mockEntry.getAuthor()).thenReturn("Jane Doe");
+            when(mockEntry.getPublishedDate()).thenReturn(new Date());
+            when(mockEntry.getCategories()).thenReturn(List.of());
+
+            News news = service.syndEntryToNews(mockEntry, source, report);
+
+            assertThat(news.title).isEqualTo(TextCleaner.clean("Atom Feed 测试标题"));
+            assertThat(news.sourceUrl).isEqualTo("https://techblog.com/posts/atom-post-1");
+            assertThat(news.sourceRssName).isEqualTo("TechBlog Atom");
+            // 正文应取 content（不是 description）
+            assertThat(news.rawContent).isEqualTo("<div>完整的HTML正文内容，Atom格式通常包含丰富的HTML内容</div>");
+            // 摘要取 description
+            assertThat(news.summary).isEqualTo("这是一条 Atom feed 的摘要文本");
+            assertThat(news.author).isEqualTo("Jane Doe");
+            assertThat(news.simHash).isNotNull();
+            assertThat(news.simHash).isNotEqualTo(0L);
+        }
+
+        @Test
+        @DisplayName("Atom 条目（无 summary，只有 content）")
+        void parseAtomEntryWithoutSummary() {
+            SyndEntry mockEntry = mock(SyndEntry.class);
+            SyndContent content = mock(SyndContent.class);
+
+            when(mockEntry.getTitle()).thenReturn("纯内容Atom条目");
+            when(mockEntry.getLink()).thenReturn("https://techblog.com/posts/atom-post-2");
+            when(mockEntry.getDescription()).thenReturn(null);  // 无 summary
+            when(mockEntry.getContents()).thenReturn(List.of(content));
+            when(content.getValue()).thenReturn("完整的文章正文内容");
+            when(mockEntry.getAuthor()).thenReturn("John Smith");
+            when(mockEntry.getPublishedDate()).thenReturn(new Date());
+            when(mockEntry.getCategories()).thenReturn(List.of());
+
+            News news = service.syndEntryToNews(mockEntry, source, report);
+
+            assertThat(news.summary).isNull();
+            assertThat(news.rawContent).isEqualTo("完整的文章正文内容");
+            assertThat(news.contentLength).isGreaterThan(0);
+        }
+
+        @Test
+        @DisplayName("Atom 条目（空标题 → 清洗后为空）")
+        void parseAtomEntryWithEmptyTitle() {
+            SyndEntry mockEntry = mock(SyndEntry.class);
+
+            when(mockEntry.getTitle()).thenReturn("");  // 空标题
+            when(mockEntry.getLink()).thenReturn("https://techblog.com/posts/atom-no-title");
+            when(mockEntry.getDescription()).thenReturn(null);
+            when(mockEntry.getContents()).thenReturn(Collections.emptyList());
+            when(mockEntry.getAuthor()).thenReturn(null);
+            when(mockEntry.getPublishedDate()).thenReturn(null);
+            when(mockEntry.getCategories()).thenReturn(List.of());
+
+            News news = service.syndEntryToNews(mockEntry, source, report);
+
+            // 标题清洗后为空字符串
+            assertThat(news.title).isEmpty();
+            // SimHash 从空字符串计算 → 应返回 0
+            assertThat(news.simHash).isEqualTo(0L);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // I2-3: 并发拉取多个源
+    // ═══════════════════════════════════════════════════════
+
+    @Nested
+    @DisplayName("I2-3: 并发拉取多个源")
+    class ConcurrentFetch {
+
+        private RssSource source1, source2, source3;
+        private Report report;
+
+        @BeforeEach
+        void setUp() {
+            source1 = new RssSource();
+            source1.id = 1L;
+            source1.name = "源A";
+            source1.url = "https://a.com/feed";
+
+            source2 = new RssSource();
+            source2.id = 2L;
+            source2.name = "源B";
+            source2.url = "https://b.com/feed";
+
+            source3 = new RssSource();
+            source3.id = 3L;
+            source3.name = "源C";
+            source3.url = "https://c.com/feed";
+
+            report = new Report();
+            report.id = 100L;
+        }
+
+        @Test
+        @DisplayName("3 个源全部成功 → 聚合结果正确")
+        void allSourcesSucceed() throws Exception {
+            RssFetchService spy = spy(service);
+            doReturn(5).when(spy).fetchFromSource(any(RssSource.class), any(), any(Report.class));
+
+            // Mock Panache for updateReportNewsCount
+            try (MockedStatic<Report> reportMock = mockStatic(Report.class);
+                 MockedStatic<News> newsMock = mockStatic(News.class)) {
+
+                reportMock.when(() -> Report.findById(100L)).thenReturn(report);
+                newsMock.when(() -> News.count(anyString(), any())).thenReturn(15L);
+
+                RssFetchService.FetchResult result = spy.doFetchAll(
+                    List.of(source1, source2, source3), report, spy);
+
+                assertThat(result.newNews()).isEqualTo(15);   // 3 × 5
+                assertThat(result.failedSources()).isEqualTo(0);
+                assertThat(result.errors()).isEmpty();
+                verify(spy, times(3)).fetchFromSource(any(RssSource.class), any(), any(Report.class));
+            }
+        }
+
+        @Test
+        @DisplayName("1 个源失败 → 不影响其他源")
+        void oneSourceFailsOthersSucceed() throws Exception {
+            RssFetchService spy = spy(service);
+            // 源B 失败
+            doReturn(5)
+                .when(spy).fetchFromSource(eq(source1), any(), any(Report.class));
+            doThrow(new RuntimeException("连接超时"))
+                .when(spy).fetchFromSource(eq(source2), any(), any(Report.class));
+            doReturn(3)
+                .when(spy).fetchFromSource(eq(source3), any(), any(Report.class));
+
+            try (MockedStatic<Report> reportMock = mockStatic(Report.class);
+                 MockedStatic<News> newsMock = mockStatic(News.class)) {
+
+                reportMock.when(() -> Report.findById(100L)).thenReturn(report);
+                newsMock.when(() -> News.count(anyString(), any())).thenReturn(8L);
+
+                RssFetchService.FetchResult result = spy.doFetchAll(
+                    List.of(source1, source2, source3), report, spy);
+
+                assertThat(result.newNews()).isEqualTo(8);    // 5 + 0 + 3
+                assertThat(result.failedSources()).isEqualTo(1);
+                assertThat(result.errors()).hasSize(1);
+                assertThat(result.errors().get(0)).contains("源B");
+                assertThat(result.errors().get(0)).contains("连接超时");
+            }
+        }
+
+        @Test
+        @DisplayName("空源列表 → 返回空结果")
+        void emptySourceListReturnsEmpty() {
+            RssFetchService.FetchResult result = service.fetchAll(List.of(), null, null);
+
+            assertThat(result.newNews()).isEqualTo(0);
+            assertThat(result.failedSources()).isEqualTo(0);
+        }
+
+        @Test
+        @DisplayName("null 源列表 → 返回空结果")
+        void nullSourceListReturnsEmpty() {
+            RssFetchService.FetchResult result = service.fetchAll(null, null, null);
+
+            assertThat(result.newNews()).isEqualTo(0);
+            assertThat(result.failedSources()).isEqualTo(0);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 辅助方法
+    // ═══════════════════════════════════════════════════════
+
+    /** 创建含 URL + 标题的 News 对象 */
+    static News createNews(String title, String sourceUrl, String rawContent, int contentLength) {
+        News news = new News();
+        news.id = (long) (Math.random() * 100000);
+        news.title = title;
+        news.sourceUrl = sourceUrl;
+        news.rawContent = rawContent;
+        news.contentLength = contentLength;
+        // 计算 SimHash
+        String simHashText = title;
+        if (rawContent != null && !rawContent.isEmpty()) {
+            simHashText += " " + rawContent.substring(0, Math.min(500, rawContent.length()));
+        }
+        news.simHash = SimHash.compute(simHashText);
+        return news;
+    }
+
+    /** 创建指定 SimHash 的 News 对象 */
+    static News createNewsWithSimHash(String title, String sourceUrl, String rawContent, int contentLength, Long simHash) {
+        News news = new News();
+        news.id = (long) (Math.random() * 100000);
+        news.title = title;
+        news.sourceUrl = sourceUrl;
+        news.rawContent = rawContent;
+        news.contentLength = contentLength;
+        news.simHash = simHash;
+        return news;
+    }
+}

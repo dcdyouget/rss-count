@@ -1,0 +1,43 @@
+#!/bin/sh
+# ----------------------------------------------------------------------------
+# Maven Wrapper
+# ----------------------------------------------------------------------------
+
+# Locate Java
+if [ -n "$JAVA_HOME" ] ; then
+    JAVA="$JAVA_HOME/bin/java"
+else
+    JAVA="$(which java 2>/dev/null)"
+fi
+if [ ! -x "$JAVA" ] ; then
+    echo "ERROR: JAVA_HOME is not set and 'java' could not be found." >&2
+    exit 1
+fi
+
+# Locate Maven Wrapper
+MAVEN_PROJECTBASEDIR="$(cd "$(dirname "$0")"; pwd)"
+MAVEN_WRAPPER_JAR="$MAVEN_PROJECTBASEDIR/.mvn/wrapper/maven-wrapper.jar"
+
+# Locate Maven distribution
+if [ -f "$MAVEN_PROJECTBASEDIR/.mvn/wrapper/maven-wrapper.properties" ] ; then
+    distributionUrl=$(grep '^distributionUrl=' "$MAVEN_PROJECTBASEDIR/.mvn/wrapper/maven-wrapper.properties" | sed 's/^distributionUrl=//')
+    MAVEN_HOME="$HOME/.m2/wrapper/dists/$(echo "$distributionUrl" | md5sum | awk '{print $1}')/apache-maven-3.9.9"
+fi
+
+# If maven-wrapper.jar is not found, download maven distribution
+if [ ! -f "$MAVEN_WRAPPER_JAR" ] ; then
+    # Try running Maven directly from system
+    MVN_CMD="$(which mvn 2>/dev/null)"
+    if [ -z "$MVN_CMD" ] ; then
+        echo "ERROR: Maven Wrapper JAR not found and system 'mvn' not available."
+        echo "Please run: mvn wrapper:wrapper -Dmaven=3.9.9"
+        exit 1
+    fi
+    exec "$MVN_CMD" "$@"
+fi
+
+exec "$JAVA" \
+    -Dmaven.home="$MAVEN_HOME" \
+    -Dmaven.multiModuleProjectDirectory="$MAVEN_PROJECTBASEDIR" \
+    -jar "$MAVEN_WRAPPER_JAR" \
+    "$@"
