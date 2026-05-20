@@ -251,4 +251,15 @@ class DashboardControllerTest {
 
         assertTrue(json.contains("Report 5"));
     }
+
+    private void runInTransaction(Runnable action) {
+        try {
+            userTransaction.begin();
+            action.run();
+            userTransaction.commit();
+        } catch (Exception e) {
+            try { userTransaction.rollback(); } catch (Exception ignored) {}
+            throw new RuntimeException(e);
+        }
+    }
 }

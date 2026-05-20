@@ -1,8 +1,318 @@
+import { useState } from 'react';
+import {
+  Table, Button, Modal, Form, Input, Select, Upload, Popconfirm,
+  Typography, theme, message, Image, Avatar, Tabs, Space, Flex,
+} from 'antd';
+import {
+  PlusOutlined, UploadOutlined, DownloadOutlined,
+} from '@ant-design/icons';
+import type { UploadProps } from 'antd';
+import {
+  useRssSourceList, useCreateRssSource, useDeleteRssSource,
+  useImportOpml, useExportOpml, useRssGroups, useCreateRssGroup,
+} from '@/api/rssSources';
+import type { RssSource, RssGroup } from '@/types';
+
+const { Text } = Typography;
+
 export default function RssSourceManagement() {
+  const { token } = theme.useToken();
+  const [activeGroupId, setActiveGroupId] = useState<number | undefined>(undefined);
+
+  const { data: sources = [], isLoading: sourcesLoading } = useRssSourceList(activeGroupId);
+  const { data: groups = [], isLoading: groupsLoading } = useRssGroups();
+  const createSource = useCreateRssSource();
+  const deleteSource = useDeleteRssSource();
+  const importOpml = useImportOpml();
+  const exportOpml = useExportOpml();
+  const createGroup = useCreateRssGroup();
+
+  // Add source modal
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [addForm] = Form.useForm();
+
+  // Add group modal
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [groupForm] = Form.useForm();
+
+  // Import result modal
+  const [resultModalOpen, setResultModalOpen] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    created: number;
+    skipped: number;
+    errors: string[];
+    total: number;
+  } | null>(null);
+
+  const formatTime = (t: string | null) => {
+    if (!t) return '从未';
+    const d = new Date(t);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
+  const handleAddSource = async () => {
+    try {
+      const values = await addForm.validateFields();
+      await createSource.mutateAsync({
+        url: values.url,
+        name: values.name || undefined,
+        groupIds: values.groupIds || undefined,
+      });
+      message.success('添加成功');
+      setAddModalOpen(false);
+      addForm.resetFields();
+    } catch {
+      // handled
+    }
+  };
+
+  const handleDeleteSource = async (id: number) => {
+    await deleteSource.mutateAsync(id);
+    message.success('已删除');
+  };
+
+  const handleAddGroup = async () => {
+    try {
+      const values = await groupForm.validateFields();
+      await createGroup.mutateAsync({ name: values.name });
+      message.success('分组已创建');
+      setGroupModalOpen(false);
+      groupForm.resetFields();
+    } catch {
+      // handled
+    }
+  };
+
+  const columns = [
+    {
+      title: '',
+      dataIndex: 'iconPath',
+      key: 'icon',
+      width: 48,
+      render: (iconPath: string | null) =>
+        iconPath ? (
+          <Image src={iconPath} width={24} height={24} preview={false} style={{ borderRadius: 4 }} />
+        ) : (
+          <Avatar size={24} shape="square" style={{ fontSize: 12 }}>
+            RSS
+          </Avatar>
+        ),
+    },
+    {
+      title: '名称',
+      dataIndex: 'name',
+      key: 'name',
+      ellipsis: true,
+    },
+    {
+      title: '添加时间',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      width: 170,
+      render: (t: string) => formatTime(t),
+    },
+    {
+      title: '最近拉取',
+      dataIndex: 'lastFetchAt',
+      key: 'lastFetchAt',
+      width: 170,
+      render: (t: string | null) => (
+        <Text type="secondary" style={{ fontSize: token.fontSizeSM }}>
+          {formatTime(t)}
+        </Text>
+      ),
+    },
+    {
+      title: '拉取总数',
+      dataIndex: 'totalFetched',
+      key: 'totalFetched',
+      width: 100,
+      align: 'right' as const,
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 100,
+      render: (_: unknown, record: RssSource) => (
+        <Popconfirm
+          title="确定删除？"
+          description="历史新闻不受影响"
+          onConfirm={() => handleDeleteSource(record.id)}
+          okText="确定"
+          cancelText="取消"
+        >
+          <Button type="link" danger size="small">
+            删除
+          </Button>
+        </Popconfirm>
+      ),
+    },
+  ];
+
+  const uploadProps: UploadProps = {
+    accept: '.opml,.xml',
+    showUploadList: false,
+    beforeUpload: (file) => {
+      importOpml.mutateAsync(file).then((result) => {
+        setImportResult(result);
+        setResultModalOpen(true);
+      });
+      return false;
+    },
+  };
+
   return (
-    <div>
-      <h2>RSS 源管理</h2>
-      <p>RssSourceManagement 页面 — 分组标签栏 + 源表格</p>
-    </div>
+    <Flex vertical gap={token.marginLG}>
+      {/* Header */}
+      <Flex justify="space-between" align="center">
+        <Text strong style={{ fontSize: token.fontSizeHeading3 }}>
+          RSS 源管理
+        </Text>
+        <Space>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setAddModalOpen(true)}
+          >
+            添加源
+          </Button>
+          <Upload {...uploadProps}>
+            <Button icon={<UploadOutlined />} loading={importOpml.isPending}>
+              导入 OPML
+            </Button>
+          </Upload>
+          <Button
+            icon={<DownloadOutlined />}
+            onClick={() => exportOpml.mutate()}
+            loading={exportOpml.isPending}
+          >
+            导出 OPML
+          </Button>
+        </Space>
+      </Flex>
+
+      {/* Group tabs */}
+      <Tabs
+        activeKey={activeGroupId === undefined ? 'all' : String(activeGroupId)}
+        onChange={(key) => {
+          if (key === 'add-group') {
+            setGroupModalOpen(true);
+            return;
+          }
+          setActiveGroupId(key === 'all' ? undefined : Number(key));
+        }}
+        items={[
+          { key: 'all', label: '全部' },
+          ...groups.map((g: RssGroup) => ({
+            key: String(g.id),
+            label: `${g.name} (${g.sourceCount})`,
+          })),
+          { key: 'add-group', label: '+', disabled: groupsLoading },
+        ]}
+      />
+
+      {/* Table */}
+      <Table
+        columns={columns}
+        dataSource={sources}
+        rowKey="id"
+        loading={sourcesLoading}
+        pagination={{
+          pageSize: 20,
+          showSizeChanger: true,
+          showTotal: (total: number) => `共 ${total} 条`,
+        }}
+      />
+
+      {/* Add source modal */}
+      <Modal
+        title="添加 RSS 源"
+        open={addModalOpen}
+        onCancel={() => {
+          setAddModalOpen(false);
+          addForm.resetFields();
+        }}
+        onOk={handleAddSource}
+        confirmLoading={createSource.isPending}
+      >
+        <Form form={addForm} layout="vertical">
+          <Form.Item
+            label="RSS 地址"
+            name="url"
+            rules={[
+              { required: true, message: '请输入 RSS 地址' },
+              { type: 'url', message: '请输入有效的 URL' },
+            ]}
+          >
+            <Input placeholder="https://example.com/rss" />
+          </Form.Item>
+          <Form.Item label="名称（可选）" name="name">
+            <Input placeholder="留空则自动获取" />
+          </Form.Item>
+          <Form.Item label="分组" name="groupIds">
+            <Select
+              mode="multiple"
+              placeholder="选择分组"
+              options={groups.map((g: RssGroup) => ({
+                label: g.name,
+                value: g.id,
+              }))}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Add group modal */}
+      <Modal
+        title="新建分组"
+        open={groupModalOpen}
+        onCancel={() => {
+          setGroupModalOpen(false);
+          groupForm.resetFields();
+        }}
+        onOk={handleAddGroup}
+        confirmLoading={createGroup.isPending}
+      >
+        <Form form={groupForm} layout="vertical">
+          <Form.Item
+            label="分组名称"
+            name="name"
+            rules={[{ required: true, message: '请输入分组名称' }]}
+          >
+            <Input placeholder="输入分组名称" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Import result modal */}
+      <Modal
+        title="导入结果"
+        open={resultModalOpen}
+        onCancel={() => setResultModalOpen(false)}
+        footer={<Button onClick={() => setResultModalOpen(false)}>确定</Button>}
+      >
+        {importResult && (
+          <div>
+            <p>创建：{importResult.created} 个</p>
+            <p>跳过：{importResult.skipped} 个</p>
+            <p>总计：{importResult.total} 个</p>
+            {importResult.errors.length > 0 && (
+              <div style={{ marginTop: token.marginSM }}>
+                <Text type="danger" style={{ fontSize: token.fontSizeSM }}>
+                  错误：
+                </Text>
+                {importResult.errors.map((err: string, i: number) => (
+                  <p key={i}>
+                    <Text type="danger" style={{ fontSize: token.fontSizeSM }}>
+                      {err}
+                    </Text>
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+    </Flex>
   );
 }

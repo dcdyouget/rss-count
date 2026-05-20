@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  rss-count:
+    image: rss-count:latest
+    container_name: rss-count
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
