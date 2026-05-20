@@ -34,19 +34,4 @@ public class Draft extends PanacheEntity {
 
     @Column(name = "updated_at", nullable = false)
     public LocalDateTime updatedAt = LocalDateTime.now();
-
-    @PrePersist
-    void onCreate() {
-        if (createdAt == null) {
-            createdAt = LocalDateTime.now();
-        }
-        if (updatedAt == null) {
-            updatedAt = LocalDateTime.now();
-        }
-    }
-
-    @PreUpdate
-    void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 }

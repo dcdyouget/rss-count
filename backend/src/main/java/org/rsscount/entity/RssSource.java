@@ -28,11 +28,4 @@ public class RssSource extends PanacheEntity {
 
     @Column(name = "is_active", nullable = false)
     public boolean isActive = true;
-
-    @PrePersist
-    void onCreate() {
-        if (createdAt == null) {
-            createdAt = LocalDateTime.now();
-        }
-    }
 }

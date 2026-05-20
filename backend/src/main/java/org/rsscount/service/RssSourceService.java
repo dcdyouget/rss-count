@@ -4,6 +4,7 @@ import io.quarkus.logging.Log;
 import io.quarkus.panache.common.Sort;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import io.quarkus.hibernate.orm.panache.Panache;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.NotFoundException;
 import org.rsscount.entity.RssGroup;
@@ -98,6 +99,7 @@ public class RssSourceService {
         source.createdAt = LocalDateTime.now();
         source.isActive = true;
         source.persist();
+        Panache.getEntityManager().flush();  // flush before query to avoid JTA isolation
 
         // Associate groups
         updateSourceGroups(source.id, request.groupIds);
@@ -317,8 +319,11 @@ public class RssSourceService {
     }
 
     private void updateSourceGroups(Long sourceId, List<Long> groupIds) {
-        // Delete old associations
-        RssSourceGroup.delete("rssSourceId", sourceId);
+        // Delete old associations (iterate to avoid JPQL bulk-delete flush issues with SQLite)
+        List<RssSourceGroup> existing = RssSourceGroup.list("rssSourceId", sourceId);
+        for (RssSourceGroup sg : existing) {
+            sg.delete();
+        }
 
         // Create new associations
         if (groupIds != null) {

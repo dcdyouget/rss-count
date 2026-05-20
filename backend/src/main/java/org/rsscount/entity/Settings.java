@@ -28,27 +28,13 @@ public class Settings extends PanacheEntity {
 
     @Column(name = "updated_at", nullable = false)
     public LocalDateTime updatedAt = LocalDateTime.now();
-
-    @PrePersist
-    void onCreate() {
-        if (updatedAt == null) {
-            updatedAt = LocalDateTime.now();
-        }
-    }
-
-    @PreUpdate
-    void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
-
     /**
-     * Get or create the singleton Settings row (id=1).
+     * Get or create the singleton Settings row.
      */
     public static Settings getOrCreate() {
-        Settings settings = findById(1L);
+        Settings settings = (Settings) findAll().firstResult();
         if (settings == null) {
             settings = new Settings();
-            settings.id = 1L;
             settings.persist();
         }
         return settings;

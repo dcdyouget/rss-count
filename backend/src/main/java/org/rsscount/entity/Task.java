@@ -40,14 +40,6 @@ public class Task extends PanacheEntity {
 
     @Column(name = "error_message", length = 2000)
     public String errorMessage;
-
-    @PrePersist
-    void onCreate() {
-        if (createdAt == null) {
-            createdAt = LocalDateTime.now();
-        }
-    }
-
     // Status constants
     public static final String STATUS_RUNNING = "RUNNING";
     public static final String STATUS_COMPLETED = "COMPLETED";
