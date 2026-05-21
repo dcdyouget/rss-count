@@ -106,7 +106,7 @@ public class TaskController {
 
         var panacheQuery = Task.find(query.toString(), Sort.by("createdAt").descending(), params);
         long total = panacheQuery.count();
-        List<Task> tasks = panacheQuery.page(Page.of(page, size)).list();
+        List<Task> tasks = panacheQuery.page(Page.of(page - 1, size)).list();
 
         List<TaskListItem> items = tasks.stream()
             .map(this::toListItem)
@@ -144,7 +144,7 @@ public class TaskController {
                 var newsQuery = org.rsscount.entity.News.find(
                     "report.id", Sort.by("createdAt").descending(), report.id);
                 List<org.rsscount.entity.News> newsEntities = newsQuery
-                    .page(Page.of(newsPage, newsSize)).list();
+                    .page(Page.of(newsPage - 1, newsSize)).list();
                 news = newsEntities.stream()
                     .map(n -> new NewsBrief(n.id, n.title, n.sourceRssName))
                     .collect(Collectors.toList());

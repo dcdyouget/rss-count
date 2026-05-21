@@ -77,7 +77,7 @@ public class ReportController {
     ) {
         var query = Report.findAll(Sort.by("createdAt").descending());
         long total = query.count();
-        List<Report> reports = query.page(Page.of(page, size)).list();
+        List<Report> reports = query.page(Page.of(page - 1, size)).list();
 
         List<ReportListItem> items = reports.stream()
             .map(r -> new ReportListItem(

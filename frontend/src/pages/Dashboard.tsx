@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card, Row, Col, List, Drawer, Form, Button, Radio, Skeleton, Empty,
@@ -12,6 +12,7 @@ import { StatusTag } from '@/components/shared/StatusTag';
 import SourceSelector from '@/components/task/SourceSelector';
 import { useDashboardStats, useRecentTasks, useRecentReports } from '@/api/dashboard';
 import { useSuggestTaskName, useLastEndTime, useCreateTask } from '@/api/tasks';
+import { useRssGroups, useRssSourceList } from '@/api/rssSources';
 import type { SourceType, SourceConfig } from '@/types';
 
 const { Text } = Typography;
@@ -27,11 +28,21 @@ export default function Dashboard() {
   const { data: lastEndTime } = useLastEndTime();
   const createTask = useCreateTask();
 
+  const { data: groups } = useRssGroups();
+  const { data: sources } = useRssSourceList();
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [form] = Form.useForm();
   const timeRange = Form.useWatch('timeRange', form);
   const [sourceType, setSourceType] = useState<SourceType>('ALL');
   const [sourceConfig, setSourceConfig] = useState<SourceConfig>({ groupIds: [], sourceIds: [] });
+
+  // Auto-fill task name from suggestion when drawer opens
+  useEffect(() => {
+    if (drawerOpen && suggestName) {
+      form.setFieldsValue({ name: suggestName });
+    }
+  }, [drawerOpen, suggestName, form]);
 
   const formatDT = (t: string) => {
     const d = new Date(t);
@@ -340,6 +351,8 @@ export default function Dashboard() {
                 setSourceType(val.sourceType);
                 setSourceConfig(val.sourceConfig);
               }}
+              groups={groups?.map((g) => ({ id: g.id, name: g.name })) ?? []}
+              sources={sources?.map((s) => ({ id: s.id, name: s.name })) ?? []}
             />
           </Form.Item>
         </Form>

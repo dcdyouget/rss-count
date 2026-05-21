@@ -20,43 +20,7 @@ public class TextCleaner {
     // HTML 标签
     private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[^>]*>");
 
-    // Emoji 范围：涵盖常见 emoji Unicode 区块
-    private static final Pattern EMOJI_PATTERN = Pattern.compile(
-        "[\\uD800-\\uDBFF\\uDC00-\\uDFFF]" +        // Surrogate pairs (including emoji)
-        "|[\\u2600-\\u27BF]" +                       // Miscellaneous Symbols
-        "|[\\u2B50-\\u2B55]" +                       // Star symbols
-        "|[\\uFE00-\\uFE0F]" +                       // Variation Selectors
-        "|[\\u200D]" +                                // Zero Width Joiner
-        "|[\\uFE0F\\u20E3]" +                         // More emoji modifiers
-        "|[\\u231A-\\u231B]" +                        // Watch symbols
-        "|[\\u23E9-\\u23F3]" +                        // Double triangles etc
-        "|[\\u23F8-\\u23FA]" +                        // Control symbols
-        "|[\\u25AA-\\u25AB\\u25B6\\u25C0\\u25FB-\\u25FE]" +
-        "|[\\u2934-\\u2935]" +
-        "|[\\u2B05-\\u2B07]" +
-        "|[\\u3030\\u303D]" +
-        "|[\\u3297\\u3299]" +
-        "|[\\u203C\\u2049]" +
-        "|[\\u2122\\u2139]" +
-        "|[\\u2328\\u23CF]" +
-        "|[\\u24C2]" +
-        "|[\\u25B6\\u25C0]" +
-        "|[\\u2614-\\u2615\\u2618\\u261D]" +
-        "|[\\u2620\\u2622-\\u2623\\u2626\\u262A\\u262E-\\u262F]" +
-        "|[\\u2638-\\u263A\\u2640\\u2642\\u2648-\\u2653\\u265F-\\u2660]" +
-        "|[\\u2663\\u2665-\\u2666\\u2668\\u267B\\u267E-\\u267F]" +
-        "|[\\u2692-\\u2697\\u2699\\u269B-\\u269C\\u26A0-\\u26A1\\u26A7]" +
-        "|[\\u26AA-\\u26AB\\u26B0-\\u26B1\\u26BD-\\u26BE\\u26C4-\\u26C5]" +
-        "|[\\u26C8\\u26CE-\\u26CF\\u26D1\\u26D3-\\u26D4\\u26E9-\\u26EA]" +
-        "|[\\u26F0-\\u26F5\\u26F7-\\u26FA\\u26FD\\u2702\\u2705]" +
-        "|[\\u2708-\\u270D\\u270F\\u2712\\u2714\\u2716\\u271D\\u2721]" +
-        "|[\\u2728\\u2733-\\u2734\\u2744\\u2747\\u274C\\u274E\\u2753-\\u2755]" +
-        "|[\\u2757\\u2763-\\u2764\\u2795-\\u2797\\u27A1\\u27B0\\u27BF]" +
-        "|[\\uD83C\\uDF00-\\uDFFF]" +                 // Misc Symbols and Pictographs
-        "|[\\uD83D\\uDC00-\\uDE4F]" +                 // Emoticons
-        "|[\\uD83D\\uDE80-\\uDEFF]" +                 // Transport and Map Symbols
-        "|[\\uD83E\\uDD00-\\uDDFF]"                   // Supplemental Symbols and Pictographs
-    );
+    // Emoji 检测使用 Java Character API 逐码点判断，避免超大正则导致编译崩溃
 
     // 前缀模式：【快讯】【突发】【独家】【滚动】等
     private static final Pattern PREFIX_PATTERN = Pattern.compile(
@@ -85,8 +49,18 @@ public class TextCleaner {
         // 1. 去除 HTML 标签
         result = HTML_TAG_PATTERN.matcher(result).replaceAll("");
 
-        // 2. 去除 Emoji
-        result = EMOJI_PATTERN.matcher(result).replaceAll("");
+        // 2. 去除 Emoji（逐码点检测，避免超大正则编译崩溃）
+        StringBuilder sb = new StringBuilder(result.length());
+        for (int i = 0; i < result.length(); ) {
+            int cp = result.codePointAt(i);
+            if (isEmoji(cp)) {
+                i += Character.charCount(cp);
+            } else {
+                sb.appendCodePoint(cp);
+                i += Character.charCount(cp);
+            }
+        }
+        result = sb.toString();
 
         // 3. 去除【快讯】等前缀（循环去除可能嵌套的多个前缀）
         String prev;
@@ -108,6 +82,32 @@ public class TextCleaner {
         result = result.trim();
 
         return result;
+    }
+
+    /**
+     * 判断 Unicode 码点是否为 Emoji 字符。
+     * 使用 Character 类型 + Unicode 区块范围检测，避免超大规模正则表达式。
+     */
+    private static boolean isEmoji(int codePoint) {
+        int type = Character.getType(codePoint);
+        // 代理对（surrogate pair 的高位/低位，这些不属于合法独立码点但安全过滤）
+        if (type == Character.SURROGATE) {
+            return true;
+        }
+        // 其他符号（OTHER_SYMBOL 包含大部分 emoji）
+        if (type == Character.OTHER_SYMBOL) {
+            return true;
+        }
+        // 修饰符符号（如肤色修饰符）
+        if (type == Character.MODIFIER_SYMBOL) {
+            return true;
+        }
+        // 明确涵盖一些常见 emoji 区块作为备保
+        return (codePoint >= 0x1F300 && codePoint <= 0x1F9FF)   // Misc Symbols, Emoticons, Suppl. Symbols
+            || (codePoint >= 0x2600 && codePoint <= 0x27BF)     // Misc Symbols, Dingbats
+            || (codePoint >= 0xFE00 && codePoint <= 0xFE0F)     // Variation Selectors
+            || codePoint == 0x200D                               // Zero Width Joiner
+            || (codePoint >= 0xE0020 && codePoint <= 0xE007F);   // Tags (用于 flag 序列)
     }
 
     /**

@@ -32,8 +32,11 @@ public class RssFetchService {
      */
     public SyndFeed parseFeed(String url) throws Exception {
         URL feedUrl = new URL(url);
+        java.net.URLConnection conn = feedUrl.openConnection();
+        conn.setConnectTimeout(15_000);
+        conn.setReadTimeout(30_000);
         SyndFeedInput input = new SyndFeedInput();
-        return input.build(new XmlReader(feedUrl));
+        return input.build(new XmlReader(conn.getInputStream()));
     }
 
     /**

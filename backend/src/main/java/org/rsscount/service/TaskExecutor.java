@@ -3,6 +3,7 @@ package org.rsscount.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.logging.Log;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -31,8 +32,9 @@ public class TaskExecutor {
     @Inject
     NewsFormatService newsFormatService;
 
-    /** Format concurrency: fixed pool of 5 threads for AI-intensive formatting */
-    private static final int FORMAT_THREADS = 5;
+    /** Format concurrency: single-threaded — SQLite only supports 1 writer at a time,
+     *  so parallel format threads would queue on the write lock anyway. */
+    private static final int FORMAT_THREADS = 1;
 
     /** Progress emitters per task (supports multiple clients per task) */
     private final ConcurrentMap<Long, List<Consumer<SseProgressEvent>>> emitters = new ConcurrentHashMap<>();
@@ -77,7 +79,8 @@ public class TaskExecutor {
     void resumeRunningTasks() {
         Log.info("TaskExecutor: Checking for incomplete tasks...");
         try {
-            List<Task> runningTasksList = Task.find("status", Task.STATUS_RUNNING).list();
+            List<Task> runningTasksList = QuarkusTransaction.call(() ->
+                Task.find("status", Task.STATUS_RUNNING).list());
             if (runningTasksList.isEmpty()) {
                 Log.info("TaskExecutor: No incomplete tasks found.");
                 return;
@@ -105,10 +108,35 @@ public class TaskExecutor {
 
         Thread.startVirtualThread(() -> {
             try {
-                doExecute(task);
+                // Phase 1: Resolve sources in its own transaction.
+                // Virtual threads have no CDI request context, so Panache queries
+                // require an explicit transaction.
+                List<RssSource> sources = QuarkusTransaction.call(() -> resolveSources(task));
+                if (sources.isEmpty()) {
+                    QuarkusTransaction.run(() -> markTaskFailed(task, "未找到有效的RSS源"));
+                    return;
+                }
+
+                // Phase 2: Create/find report in its own transaction.
+                // Must complete BEFORE format threads start writing so no outer
+                // transaction holds a SQLite lock while format threads run.
+                Report report = QuarkusTransaction.call(() -> findOrCreateReport(task));
+
+                // Phase 3: Fetch + format (NO outer transaction — format threads
+                // each use @Transactional(REQUIRES_NEW) to write independently)
+                doExecute(task, report, sources);
+
+                // Phase 4: Mark complete in its own transaction
+                QuarkusTransaction.run(() -> markTaskCompleted(task, report));
+
             } catch (Exception e) {
                 Log.errorf(e, "Task %d execution failed unexpectedly", taskId);
-                markTaskFailed(task, "系统异常: " + e.getMessage());
+                try {
+                    QuarkusTransaction.run(() ->
+                        markTaskFailed(task, "系统异常: " + e.getMessage()));
+                } catch (Exception innerErr) {
+                    Log.errorf(innerErr, "Task %d markTaskFailed also failed", taskId);
+                }
             } finally {
                 runningTasks.remove(taskId);
             }
@@ -146,154 +174,136 @@ public class TaskExecutor {
 
     // ── Internal execution ─────────────────────────────────
 
-    protected void doExecute(Task task) {
+    protected void doExecute(Task task, Report report, List<RssSource> sources) throws Exception {
         Long taskId = task.id;
-        Log.infof("Task %d: Starting execution", taskId);
+        Log.infof("Task %d: Starting fetch & format phase", taskId);
+
+        // In-memory SimHash dedup map for current task
+        //    Maps truncated hash → list of full hashes for hamming distance check
+        ConcurrentHashMap<Long, CopyOnWriteArrayList<Long>> simHashSeen = new ConcurrentHashMap<>();
+        int HASH_TRUNCATE_SHIFT = 16; // group by top 48 bits
+
+        AtomicInteger totalFetched = new AtomicInteger(0);   // total entries fetched
+        AtomicInteger totalNew = new AtomicInteger(0);       // non-duplicate (submitted to format)
+        AtomicInteger sourceIndex = new AtomicInteger(0);
+        AtomicInteger formattedCount = new AtomicInteger(0);
+        int totalSources = sources.size();
+        List<String> errors = Collections.synchronizedList(new ArrayList<>());
+
+        // Format thread pool (persists after formatting)
+        ExecutorService formatPool = Executors.newFixedThreadPool(FORMAT_THREADS);
+        List<CompletableFuture<Void>> formatFutures = Collections.synchronizedList(new ArrayList<>());
 
         try {
-            // 1. Resolve sources
-            List<RssSource> sources = resolveSources(task);
-            if (sources.isEmpty()) {
-                markTaskFailed(task, "未找到有效的RSS源");
-                return;
-            }
+            // Iterate sources sequentially, fetch entries, dedup in-memory, submit to format
+            for (RssSource source : sources) {
+                int idx = sourceIndex.incrementAndGet();
+                Log.infof("Task %d: Fetching source [%d/%d] %s", taskId, idx, totalSources, source.name);
 
-            // 2. Create or get report
-            Report report = findOrCreateReport(task);
-
-            // 3. In-memory SimHash dedup map for current task
-            //    Maps truncated hash → list of full hashes for hamming distance check
-            ConcurrentHashMap<Long, CopyOnWriteArrayList<Long>> simHashSeen = new ConcurrentHashMap<>();
-            int HASH_TRUNCATE_SHIFT = 16; // group by top 48 bits
-
-            AtomicInteger totalFetched = new AtomicInteger(0);   // total entries fetched
-            AtomicInteger totalNew = new AtomicInteger(0);       // non-duplicate (submitted to format)
-            AtomicInteger sourceIndex = new AtomicInteger(0);
-            AtomicInteger formattedCount = new AtomicInteger(0);
-            int totalSources = sources.size();
-            List<String> errors = Collections.synchronizedList(new ArrayList<>());
-
-            // 4. Format thread pool (persists after formatting)
-            ExecutorService formatPool = Executors.newFixedThreadPool(FORMAT_THREADS);
-            List<CompletableFuture<Void>> formatFutures = Collections.synchronizedList(new ArrayList<>());
-
-            try {
-                // 5. Iterate sources sequentially, fetch entries, dedup in-memory, submit to format
-                for (RssSource source : sources) {
-                    int idx = sourceIndex.incrementAndGet();
-                    Log.infof("Task %d: Fetching source [%d/%d] %s", taskId, idx, totalSources, source.name);
-
-                    emitProgress(taskId, "progress", new CombinedProgress(
-                        new PullingProgress(false, source.name, idx + "/" + totalSources, totalNew.get()),
-                        new FormattingProgress(false, formattedCount.get(), totalNew.get(), "正在拉取")
-                    ));
-
-                    try {
-                        com.rometools.rome.feed.synd.SyndFeed feed = rssFetchService.parseFeed(source.url);
-                        List<com.rometools.rome.feed.synd.SyndEntry> entries = feed.getEntries();
-
-                        if (entries == null || entries.isEmpty()) {
-                            Log.infof("Task %d: Source %s has no entries", taskId, source.name);
-                            continue;
-                        }
-
-                        for (com.rometools.rome.feed.synd.SyndEntry entry : entries) {
-                            totalFetched.incrementAndGet();
-
-                            try {
-                                // Convert entry to raw News (no DB access)
-                                News news = rssFetchService.syndEntryToNews(entry, source, report);
-                                if (news == null || news.title == null || news.title.isBlank()) {
-                                    continue;
-                                }
-
-                                // In-memory dedup: check SimHash against map
-                                if (news.simHash != null && news.simHash != 0L) {
-                                    Long key = news.simHash >>> HASH_TRUNCATE_SHIFT;
-                                    CopyOnWriteArrayList<Long> bucket = simHashSeen.get(key);
-
-                                    if (bucket != null) {
-                                        boolean isDup = false;
-                                        for (Long existingHash : bucket) {
-                                            if (Long.bitCount(news.simHash ^ existingHash) <= 3) {
-                                                isDup = true;
-                                                break;
-                                            }
-                                        }
-                                        if (isDup) {
-                                            Log.debugf("Task %d: SimHash dedup hit: %s", taskId, news.title);
-                                            continue;
-                                        }
-                                        bucket.add(news.simHash);
-                                    } else {
-                                        CopyOnWriteArrayList<Long> newBucket = new CopyOnWriteArrayList<>();
-                                        newBucket.add(news.simHash);
-                                        CopyOnWriteArrayList<Long> existing = simHashSeen.putIfAbsent(key, newBucket);
-                                        if (existing != null) {
-                                            existing.add(news.simHash);
-                                        }
-                                    }
-                                }
-
-                                totalNew.incrementAndGet();
-
-                                // Submit to format pool: format → persist in background thread
-                                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                                    try {
-                                        // Persist raw news first, then format
-                                        persistAndFormat(news, report);
-                                        int done = formattedCount.incrementAndGet();
-                                        emitProgress(taskId, "progress", new CombinedProgress(
-                                            new PullingProgress(true, "", totalSources + "/" + totalSources, totalNew.get()),
-                                            new FormattingProgress(false, done, totalNew.get(), "格式化中")
-                                        ));
-                                    } catch (Exception e) {
-                                        Log.debugf("Task %d: Format failed for news: %s", taskId, e.getMessage());
-                                        formattedCount.incrementAndGet();
-                                    }
-                                }, formatPool);
-                                formatFutures.add(future);
-
-                            } catch (Exception e) {
-                                Log.debugf("Task %d: Skip entry from %s: %s", taskId, source.name, e.getMessage());
-                            }
-                        }
-
-                        Log.infof("Task %d: Source %s done — %d entries, %d new submitted",
-                            taskId, source.name, entries.size(),
-                            totalFetched.get() /* approx for this source */);
-
-                    } catch (Exception e) {
-                        String msg = source.name + ": " + e.getMessage();
-                        errors.add(msg);
-                        Log.errorf("Task %d: Source fetch failed: %s", taskId, msg);
-                    }
-                }
-
-                // 6. Wait for all format tasks to complete
-                int pending = formatFutures.size();
-                if (pending > 0) {
-                    Log.infof("Task %d: Waiting for %d format tasks to complete...", taskId, pending);
-                    CompletableFuture.allOf(formatFutures.toArray(new CompletableFuture[0]))
-                        .get(300, TimeUnit.SECONDS);
-                }
-
-                // 7. Mark task as completed
                 emitProgress(taskId, "progress", new CombinedProgress(
-                    new PullingProgress(true, "", totalSources + "/" + totalSources, totalNew.get()),
-                    new FormattingProgress(true, formattedCount.get(), totalNew.get(), "格式化完成")
+                    new PullingProgress(false, source.name, idx + "/" + totalSources, totalNew.get()),
+                    new FormattingProgress(false, formattedCount.get(), totalNew.get(), "正在拉取")
                 ));
 
-                markTaskCompleted(task, report);
+                try {
+                    com.rometools.rome.feed.synd.SyndFeed feed = rssFetchService.parseFeed(source.url);
+                    List<com.rometools.rome.feed.synd.SyndEntry> entries = feed.getEntries();
 
-            } finally {
-                formatPool.shutdown();
-                try { formatPool.awaitTermination(10, TimeUnit.SECONDS); } catch (InterruptedException ignored) {}
+                    if (entries == null || entries.isEmpty()) {
+                        Log.infof("Task %d: Source %s has no entries", taskId, source.name);
+                        continue;
+                    }
+
+                    for (com.rometools.rome.feed.synd.SyndEntry entry : entries) {
+                        totalFetched.incrementAndGet();
+
+                        try {
+                            // Convert entry to raw News (no DB access)
+                            News news = rssFetchService.syndEntryToNews(entry, source, report);
+                            if (news == null || news.title == null || news.title.isBlank()) {
+                                continue;
+                            }
+
+                            // In-memory dedup: check SimHash against map
+                            if (news.simHash != null && news.simHash != 0L) {
+                                Long key = news.simHash >>> HASH_TRUNCATE_SHIFT;
+                                CopyOnWriteArrayList<Long> bucket = simHashSeen.get(key);
+
+                                if (bucket != null) {
+                                    boolean isDup = false;
+                                    for (Long existingHash : bucket) {
+                                        if (Long.bitCount(news.simHash ^ existingHash) <= 3) {
+                                            isDup = true;
+                                            break;
+                                        }
+                                    }
+                                    if (isDup) {
+                                        Log.debugf("Task %d: SimHash dedup hit: %s", taskId, news.title);
+                                        continue;
+                                    }
+                                    bucket.add(news.simHash);
+                                } else {
+                                    CopyOnWriteArrayList<Long> newBucket = new CopyOnWriteArrayList<>();
+                                    newBucket.add(news.simHash);
+                                    CopyOnWriteArrayList<Long> existing = simHashSeen.putIfAbsent(key, newBucket);
+                                    if (existing != null) {
+                                        existing.add(news.simHash);
+                                    }
+                                }
+                            }
+
+                            totalNew.incrementAndGet();
+
+                            // Submit to format pool: format → persist in background thread
+                            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                                try {
+                                    // Persist raw news first, then format
+                                    persistAndFormat(news, report);
+                                    int done = formattedCount.incrementAndGet();
+                                    emitProgress(taskId, "progress", new CombinedProgress(
+                                        new PullingProgress(true, "", totalSources + "/" + totalSources, totalNew.get()),
+                                        new FormattingProgress(false, done, totalNew.get(), "格式化中")
+                                    ));
+                                } catch (Exception e) {
+                                    Log.debugf("Task %d: Format failed for news: %s", taskId, e.getMessage());
+                                    formattedCount.incrementAndGet();
+                                }
+                            }, formatPool);
+                            formatFutures.add(future);
+
+                        } catch (Exception e) {
+                            Log.debugf("Task %d: Skip entry from %s: %s", taskId, source.name, e.getMessage());
+                        }
+                    }
+
+                    Log.infof("Task %d: Source %s done — %d entries, %d new submitted",
+                        taskId, source.name, entries.size(),
+                        totalFetched.get() /* approx for this source */);
+
+                } catch (Exception e) {
+                    String msg = source.name + ": " + e.getMessage();
+                    errors.add(msg);
+                    Log.errorf("Task %d: Source fetch failed: %s", taskId, msg);
+                }
             }
 
-        } catch (Exception e) {
-            Log.errorf(e, "Task %d execution error", taskId);
-            markTaskFailed(task, "执行异常: " + e.getMessage());
+            // Wait for all format tasks to complete
+            int pending = formatFutures.size();
+            if (pending > 0) {
+                Log.infof("Task %d: Waiting for %d format tasks to complete...", taskId, pending);
+                CompletableFuture.allOf(formatFutures.toArray(new CompletableFuture[0]))
+                    .get(300, TimeUnit.SECONDS);
+            }
+
+            // Emit formatting completion (markTaskCompleted handled by caller)
+            emitProgress(taskId, "progress", new CombinedProgress(
+                new PullingProgress(true, "", totalSources + "/" + totalSources, totalNew.get()),
+                new FormattingProgress(true, formattedCount.get(), totalNew.get(), "格式化完成")
+            ));
+
+        } finally {
+            formatPool.shutdown();
+            try { formatPool.awaitTermination(10, TimeUnit.SECONDS); } catch (InterruptedException ignored) {}
         }
     }
 
