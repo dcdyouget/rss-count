@@ -14,7 +14,6 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -147,7 +146,6 @@ public class TaskExecutor {
 
     // ── Internal execution ─────────────────────────────────
 
-    @Transactional
     protected void doExecute(Task task) {
         Long taskId = task.id;
         Log.infof("Task %d: Starting execution", taskId);
@@ -155,7 +153,6 @@ public class TaskExecutor {
         try {
             // 1. Resolve sources
             List<RssSource> sources = resolveSources(task);
-
             if (sources.isEmpty()) {
                 markTaskFailed(task, "未找到有效的RSS源");
                 return;
@@ -164,113 +161,149 @@ public class TaskExecutor {
             // 2. Create or get report
             Report report = findOrCreateReport(task);
 
-            // 3. Fetch phase: concurrent pull from all RSS sources
-            AtomicInteger totalFetched = new AtomicInteger(0);
-            AtomicInteger completedSources = new AtomicInteger(0);
+            // 3. In-memory SimHash dedup map for current task
+            //    Maps truncated hash → list of full hashes for hamming distance check
+            ConcurrentHashMap<Long, CopyOnWriteArrayList<Long>> simHashSeen = new ConcurrentHashMap<>();
+            int HASH_TRUNCATE_SHIFT = 16; // group by top 48 bits
+
+            AtomicInteger totalFetched = new AtomicInteger(0);   // total entries fetched
+            AtomicInteger totalNew = new AtomicInteger(0);       // non-duplicate (submitted to format)
+            AtomicInteger sourceIndex = new AtomicInteger(0);
+            AtomicInteger formattedCount = new AtomicInteger(0);
             int totalSources = sources.size();
-            List<News> allNews = Collections.synchronizedList(new ArrayList<>());
-            List<String> fetchErrors = Collections.synchronizedList(new ArrayList<>());
+            List<String> errors = Collections.synchronizedList(new ArrayList<>());
 
-            // 3a. Load existing news for dedup
-            List<News> existingNews = loadExistingNews(report);
+            // 4. Format thread pool (persists after formatting)
+            ExecutorService formatPool = Executors.newFixedThreadPool(FORMAT_THREADS);
+            List<CompletableFuture<Void>> formatFutures = Collections.synchronizedList(new ArrayList<>());
 
-            try (ExecutorService fetchExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
-                List<Future<List<News>>> futures = new ArrayList<>();
-
+            try {
+                // 5. Iterate sources sequentially, fetch entries, dedup in-memory, submit to format
                 for (RssSource source : sources) {
-                    futures.add(fetchExecutor.submit(() -> {
-                        try {
-                            emitProgress(taskId, "progress", new CombinedProgress(
-                                new PullingProgress(false, source.name,
-                                    (completedSources.get() + 1) + "/" + totalSources,
-                                    totalFetched.get()),
-                                new FormattingProgress(false, 0, 0, "正在拉取")
-                            ));
+                    int idx = sourceIndex.incrementAndGet();
+                    Log.infof("Task %d: Fetching source [%d/%d] %s", taskId, idx, totalSources, source.name);
 
-                            int count = rssFetchService.fetchFromSource(source, task, report);
-                            totalFetched.addAndGet(count);
-                            completedSources.incrementAndGet();
-                            return Collections.<News>emptyList();
-                        } catch (Exception e) {
-                            String msg = source.name + ": " + e.getMessage();
-                            fetchErrors.add(msg);
-                            completedSources.incrementAndGet();
-                            Log.errorf("Task %d: Source fetch failed: %s", taskId, msg);
-                            return Collections.<News>emptyList();
-                        }
-                    }));
-                }
+                    emitProgress(taskId, "progress", new CombinedProgress(
+                        new PullingProgress(false, source.name, idx + "/" + totalSources, totalNew.get()),
+                        new FormattingProgress(false, formattedCount.get(), totalNew.get(), "正在拉取")
+                    ));
 
-                for (Future<List<News>> future : futures) {
                     try {
-                        List<News> news = future.get(60, TimeUnit.SECONDS);
-                        allNews.addAll(news);
+                        com.rometools.rome.feed.synd.SyndFeed feed = rssFetchService.parseFeed(source.url);
+                        List<com.rometools.rome.feed.synd.SyndEntry> entries = feed.getEntries();
+
+                        if (entries == null || entries.isEmpty()) {
+                            Log.infof("Task %d: Source %s has no entries", taskId, source.name);
+                            continue;
+                        }
+
+                        for (com.rometools.rome.feed.synd.SyndEntry entry : entries) {
+                            totalFetched.incrementAndGet();
+
+                            try {
+                                // Convert entry to raw News (no DB access)
+                                News news = rssFetchService.syndEntryToNews(entry, source, report);
+                                if (news == null || news.title == null || news.title.isBlank()) {
+                                    continue;
+                                }
+
+                                // In-memory dedup: check SimHash against map
+                                if (news.simHash != null && news.simHash != 0L) {
+                                    Long key = news.simHash >>> HASH_TRUNCATE_SHIFT;
+                                    CopyOnWriteArrayList<Long> bucket = simHashSeen.get(key);
+
+                                    if (bucket != null) {
+                                        boolean isDup = false;
+                                        for (Long existingHash : bucket) {
+                                            if (Long.bitCount(news.simHash ^ existingHash) <= 3) {
+                                                isDup = true;
+                                                break;
+                                            }
+                                        }
+                                        if (isDup) {
+                                            Log.debugf("Task %d: SimHash dedup hit: %s", taskId, news.title);
+                                            continue;
+                                        }
+                                        bucket.add(news.simHash);
+                                    } else {
+                                        CopyOnWriteArrayList<Long> newBucket = new CopyOnWriteArrayList<>();
+                                        newBucket.add(news.simHash);
+                                        CopyOnWriteArrayList<Long> existing = simHashSeen.putIfAbsent(key, newBucket);
+                                        if (existing != null) {
+                                            existing.add(news.simHash);
+                                        }
+                                    }
+                                }
+
+                                totalNew.incrementAndGet();
+
+                                // Submit to format pool: format → persist in background thread
+                                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                                    try {
+                                        // Persist raw news first, then format
+                                        persistAndFormat(news, report);
+                                        int done = formattedCount.incrementAndGet();
+                                        emitProgress(taskId, "progress", new CombinedProgress(
+                                            new PullingProgress(true, "", totalSources + "/" + totalSources, totalNew.get()),
+                                            new FormattingProgress(false, done, totalNew.get(), "格式化中")
+                                        ));
+                                    } catch (Exception e) {
+                                        Log.debugf("Task %d: Format failed for news: %s", taskId, e.getMessage());
+                                        formattedCount.incrementAndGet();
+                                    }
+                                }, formatPool);
+                                formatFutures.add(future);
+
+                            } catch (Exception e) {
+                                Log.debugf("Task %d: Skip entry from %s: %s", taskId, source.name, e.getMessage());
+                            }
+                        }
+
+                        Log.infof("Task %d: Source %s done — %d entries, %d new submitted",
+                            taskId, source.name, entries.size(),
+                            totalFetched.get() /* approx for this source */);
+
                     } catch (Exception e) {
-                        fetchErrors.add("拉取超时或失败: " + e.getMessage());
+                        String msg = source.name + ": " + e.getMessage();
+                        errors.add(msg);
+                        Log.errorf("Task %d: Source fetch failed: %s", taskId, msg);
                     }
                 }
-            }
 
-            emitProgress(taskId, "progress", new CombinedProgress(
-                new PullingProgress(true, "", totalSources + "/" + totalSources, totalFetched.get()),
-                new FormattingProgress(false, 0, allNews.size(), "正在格式化")
-            ));
-
-            // 4. Format phase: process news through formatting pipeline
-            List<News> freshNews = new ArrayList<>(allNews);
-            AtomicInteger formattedCount = new AtomicInteger(0);
-            int totalToFormat = freshNews.size();
-
-            if (totalToFormat == 0) {
-                // Check if all sources failed
-                if (fetchErrors.size() >= totalSources) {
-                    markTaskFailed(task, "全部RSS源拉取失败：" + String.join("; ", fetchErrors));
-                    return;
-                }
-            }
-
-            try (ExecutorService formatExecutor = Executors.newFixedThreadPool(FORMAT_THREADS)) {
-                List<CompletableFuture<Void>> formatFutures = new ArrayList<>();
-
-                for (News news : freshNews) {
-                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                        try {
-                            // Re-fetch managed entity for this thread's context
-                            News managedNews = News.findById(news.id);
-                            if (managedNews != null) {
-                                Report managedReport = Report.findById(report.id);
-                                newsFormatService.formatOneNews(managedNews, managedReport);
-                                int done = formattedCount.incrementAndGet();
-                                emitProgress(taskId, "progress", new CombinedProgress(
-                                    new PullingProgress(true, "", totalSources + "/" + totalSources, totalFetched.get()),
-                                    new FormattingProgress(false, done, totalToFormat, "正在生成概览")
-                                ));
-                            }
-                        } catch (Exception e) {
-                            Log.debugf("Task %d: Format skip for news: %s", taskId, e.getMessage());
-                            formattedCount.incrementAndGet();
-                        }
-                    }, formatExecutor);
-                    formatFutures.add(future);
+                // 6. Wait for all format tasks to complete
+                int pending = formatFutures.size();
+                if (pending > 0) {
+                    Log.infof("Task %d: Waiting for %d format tasks to complete...", taskId, pending);
+                    CompletableFuture.allOf(formatFutures.toArray(new CompletableFuture[0]))
+                        .get(300, TimeUnit.SECONDS);
                 }
 
-                // Wait for all formatting to complete
-                CompletableFuture.allOf(formatFutures.toArray(new CompletableFuture[0]))
-                    .get(300, TimeUnit.SECONDS);
+                // 7. Mark task as completed
+                emitProgress(taskId, "progress", new CombinedProgress(
+                    new PullingProgress(true, "", totalSources + "/" + totalSources, totalNew.get()),
+                    new FormattingProgress(true, formattedCount.get(), totalNew.get(), "格式化完成")
+                ));
+
+                markTaskCompleted(task, report);
+
+            } finally {
+                formatPool.shutdown();
+                try { formatPool.awaitTermination(10, TimeUnit.SECONDS); } catch (InterruptedException ignored) {}
             }
-
-            // 5. Mark task as completed
-            emitProgress(taskId, "progress", new CombinedProgress(
-                new PullingProgress(true, "", totalSources + "/" + totalSources, totalFetched.get()),
-                new FormattingProgress(true, formattedCount.get(), totalToFormat, "格式化完成")
-            ));
-
-            markTaskCompleted(task, report);
 
         } catch (Exception e) {
             Log.errorf(e, "Task %d execution error", taskId);
             markTaskFailed(task, "执行异常: " + e.getMessage());
         }
+    }
+
+    /**
+     * Persist + format news in a single transaction.
+     * Runs in a format pool thread.
+     */
+    void persistAndFormat(News news, Report report) {
+        // formatOneNews does persist + full pipeline in its own @Transactional
+        newsFormatService.formatOneNews(news, report);
     }
 
     // ── Source resolution ──────────────────────────────────
@@ -405,13 +438,4 @@ public class TaskExecutor {
         }
     }
 
-    // ── Existing news loader ───────────────────────────────
-
-    List<News> loadExistingNews(Report report) {
-        try {
-            return News.find("report.id", report.id).list();
-        } catch (Exception e) {
-            return new ArrayList<>();
-        }
-    }
 }

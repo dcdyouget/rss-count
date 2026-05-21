@@ -47,6 +47,11 @@ public class NewsFormatService {
             return null;
         }
 
+        // 0. Persist raw news first (caller provides a transient entity)
+        if (!raw.isPersistent()) {
+            raw.persist();
+        }
+
         // 1. Clean title
         if (raw.title != null) {
             raw.title = TextCleaner.clean(raw.title);
