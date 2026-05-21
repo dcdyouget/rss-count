@@ -1,13 +1,17 @@
 package org.rsscount.entity;
 
-import io.quarkus.hibernate.orm.panache.PanacheEntity;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "draft_version",
     uniqueConstraints = @UniqueConstraint(columnNames = {"draft_id", "version"}))
-public class DraftVersion extends PanacheEntity {
+public class DraftVersion extends PanacheEntityBase {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    public Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "draft_id", nullable = false)

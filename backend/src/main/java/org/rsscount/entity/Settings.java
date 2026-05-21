@@ -1,12 +1,16 @@
 package org.rsscount.entity;
 
-import io.quarkus.hibernate.orm.panache.PanacheEntity;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "settings")
-public class Settings extends PanacheEntity {
+public class Settings extends PanacheEntityBase {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    public Long id;
 
     @Column(name = "task_interval_hours", nullable = false)
     public int taskIntervalHours = 6;

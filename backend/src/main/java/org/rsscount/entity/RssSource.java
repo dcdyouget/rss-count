@@ -1,12 +1,16 @@
 package org.rsscount.entity;
 
-import io.quarkus.hibernate.orm.panache.PanacheEntity;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "rss_source")
-public class RssSource extends PanacheEntity {
+public class RssSource extends PanacheEntityBase {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    public Long id;
 
     @Column(name = "url", length = 2048, nullable = false, unique = true)
     public String url;

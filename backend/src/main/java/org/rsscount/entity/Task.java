@@ -1,6 +1,6 @@
 package org.rsscount.entity;
 
-import io.quarkus.hibernate.orm.panache.PanacheEntity;
+import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
@@ -9,7 +9,11 @@ import java.time.LocalDateTime;
     @Index(name = "idx_task_status", columnList = "status"),
     @Index(name = "idx_task_created_at", columnList = "created_at DESC")
 })
-public class Task extends PanacheEntity {
+public class Task extends PanacheEntityBase {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    public Long id;
 
     @Column(name = "name", length = 200, nullable = false)
     public String name;
