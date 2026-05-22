@@ -25,6 +25,15 @@ public class RssSourceController {
     RssSourceService service;
 
     @GET
+    @Path("/search")
+    public RssSourceService.PagedResponse<RssSourceService.RssSourceResponse> search(
+        @QueryParam("keyword") String keyword,
+        @QueryParam("page") @DefaultValue("1") int page,
+        @QueryParam("size") @DefaultValue("20") int size) {
+        return service.search(keyword, page, size);
+    }
+
+    @GET
     public List<RssSourceService.RssSourceResponse> list(
         @QueryParam("groupId") Long groupId
     ) {

@@ -141,6 +141,12 @@ public class ImageService {
         if (bytes[0] == 0x42 && bytes[1] == 0x4D) {
             return "bmp";
         }
+        // AVIF: ....ftypavif (ISOBMFF container, ftyp box with avif brand)
+        if (bytes.length >= 12
+                && bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79 && bytes[7] == 0x70
+                && bytes[8] == 0x61 && bytes[9] == 0x76 && bytes[10] == 0x69 && bytes[11] == 0x66) {
+            return "avif";
+        }
         // ICO: 00 00 01 00
         if (bytes[0] == 0x00 && bytes[1] == 0x00 && bytes[2] == 0x01 && bytes[3] == 0x00) {
             return "ico";

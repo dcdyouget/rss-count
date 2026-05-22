@@ -1,6 +1,7 @@
 package org.rsscount.service;
 
 import io.quarkus.logging.Log;
+import io.quarkus.panache.common.Page;
 import io.quarkus.panache.common.Sort;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -30,6 +31,8 @@ public class RssSourceService {
 
     public static final String ICONS_DIR = "src/main/resources/static/icons/";
 
+    public record PagedResponse<T>(long total, int page, int size, List<T> items) {}
+
     public record RssSourceResponse(
         Long id,
         String url,
@@ -54,6 +57,22 @@ public class RssSourceService {
         String name,
         List<Long> groupIds
     ) {}
+
+    // ---- Search ----
+
+    public PagedResponse<RssSourceResponse> search(String keyword, int page, int size) {
+        if (keyword == null || keyword.isBlank()) {
+            return new PagedResponse<>(0, page, size, List.of());
+        }
+        long total = RssSource.count("name like ?1 and isActive = true", "%" + keyword + "%");
+        List<RssSource> sources = RssSource.find("name like ?1 and isActive = true",
+            Sort.by("createdAt").descending(), "%" + keyword + "%")
+            .page(Page.of(page - 1, size)).list();
+        List<RssSourceResponse> items = sources.stream()
+            .map(this::toResponse)
+            .collect(Collectors.toList());
+        return new PagedResponse<>(total, page, size, items);
+    }
 
     // ---- CRUD ----
 

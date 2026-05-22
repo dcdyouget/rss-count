@@ -207,7 +207,7 @@ public class DraftService {
     public PaginatedResponse<DraftListSummary> list(int page, int size) {
         PanacheQuery<Draft> query = Draft.findAll(Sort.by("updatedAt").descending());
         long total = query.count();
-        List<Draft> drafts = query.page(Page.of(page, size)).list();
+        List<Draft> drafts = query.page(Page.of(page - 1, size)).list();
 
         List<DraftListSummary> items = drafts.stream()
             .map(this::toListSummary)
@@ -293,7 +293,7 @@ public class DraftService {
         );
 
         long total = query.count();
-        List<News> newsList = query.page(Page.of(page, size)).list();
+        List<News> newsList = query.page(Page.of(page - 1, size)).list();
 
         List<MaterialPileItem> items = newsList.stream()
             .map(n -> new MaterialPileItem(n.id, n.title, n.materialPileAddedAt))

@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
+import dayjs from 'dayjs';
 import {
   Row, Col, Card, Select, Button, Input, Slider, Tabs, List,
-  Modal, Transfer, Form, Space, Typography, Empty, message,
+  Modal, Form, Space, Typography, Empty, message, Checkbox,
   theme, Flex, Spin, Tooltip,
 } from 'antd';
 import {
@@ -14,6 +15,7 @@ import {
   useDraftList, useDraft, useCreateDraft, useUpdateDraft,
   useDeleteDraft, useGenerateDraft, useMaterialPile,
 } from '@/api/drafts';
+import { useBatchMaterialPile } from '@/api/news';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { formatDateTime } from '@/utils/format';
 import {
@@ -50,6 +52,7 @@ export default function DraftManagement() {
   const updateDraft = useUpdateDraft();
   const deleteDraft = useDeleteDraft();
   const generateDraft = useGenerateDraft();
+  const batchMaterialPile = useBatchMaterialPile();
 
   // Auto-select draft from URL param
   useEffect(() => {
@@ -104,6 +107,11 @@ export default function DraftManagement() {
 
   const handleSelectDraft = (id: number) => {
     setSelectedDraftId(id);
+  };
+
+  const handleOpenNewModal = () => {
+    setNewDraftName(`稿件-${dayjs().format('YYYY-MM-DD HH:mm')}`);
+    setNewModalOpen(true);
   };
 
   const handleNewDraft = async () => {
@@ -192,14 +200,22 @@ export default function DraftManagement() {
     }
   };
 
+  const handleRemoveFromMaterialPile = async (newsId: number) => {
+    try {
+      await batchMaterialPile.mutateAsync({
+        newsIds: [newsId],
+        action: 'REMOVE',
+      });
+      setNewDraftNewsIds((prev) => prev.filter((id) => id !== newsId));
+      message.success('已从素材堆移除');
+    } catch {
+      // handled by interceptor
+    }
+  };
+
   const draftOptions = (draftListData?.items ?? []).map((d: DraftListSummary) => ({
     label: d.name,
     value: d.id,
-  }));
-
-  const transferData = (materialPile?.items ?? []).map((item: MaterialPileItem) => ({
-    key: item.id,
-    title: item.title,
   }));
 
   const canGenerate = materialNews.length > 0 && !!selectedDraftId;
@@ -231,7 +247,7 @@ export default function DraftManagement() {
             allowClear
             notFoundContent={<Empty description="暂无稿件" />}
           />
-          <Button icon={<PlusOutlined />} onClick={() => setNewModalOpen(true)}>
+          <Button icon={<PlusOutlined />} onClick={handleOpenNewModal}>
             新建稿件
           </Button>
           {selectedDraftId && (
@@ -284,7 +300,7 @@ export default function DraftManagement() {
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            onClick={() => setNewModalOpen(true)}
+            onClick={handleOpenNewModal}
           >
             新建稿件
           </Button>
@@ -579,22 +595,66 @@ export default function DraftManagement() {
               placeholder="输入稿件名称"
             />
           </Form.Item>
-          <Form.Item label="选择新闻">
-            <Transfer
-              dataSource={transferData}
-              targetKeys={newDraftNewsIds}
-              onChange={(targetKeys) =>
-                setNewDraftNewsIds(targetKeys as number[])
-              }
-              render={(item) => item.title}
-              titles={['素材堆', '已选']}
-              listStyle={{
-                width: 200,
-                height: 260,
-              }}
+          <Form.Item label="素材堆 (勾选加入稿件，点击删除移出素材堆)">
+            <List
+              dataSource={materialPile?.items ?? []}
               locale={{
-                notFoundContent: '暂无素材',
+                emptyText: (
+                  <Empty
+                    description="素材堆为空，请先在新闻管理中添加素材"
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  />
+                ),
               }}
+              style={{ maxHeight: 300, overflow: 'auto' }}
+              renderItem={(item: MaterialPileItem) => (
+                <List.Item
+                  style={{
+                    padding: `${token.paddingSM}px ${token.paddingMD}px`,
+                  }}
+                  actions={[
+                    <Button
+                      key="delete"
+                      type="text"
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      loading={batchMaterialPile.isPending}
+                      onClick={() => handleRemoveFromMaterialPile(item.id)}
+                    />,
+                  ]}
+                >
+                  <Checkbox
+                    checked={newDraftNewsIds.includes(item.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setNewDraftNewsIds((prev) => [...prev, item.id]);
+                      } else {
+                        setNewDraftNewsIds((prev) =>
+                          prev.filter((id) => id !== item.id),
+                        );
+                      }
+                    }}
+                  >
+                    <Space direction="vertical" size={0}>
+                      <Text
+                        ellipsis
+                        style={{ maxWidth: 220, fontSize: token.fontSize }}
+                      >
+                        {item.title}
+                      </Text>
+                      <Text
+                        style={{
+                          fontSize: token.fontSizeSM,
+                          color: token.colorTextTertiary,
+                        }}
+                      >
+                        {formatDateTime(item.materialPileAddedAt)}
+                      </Text>
+                    </Space>
+                  </Checkbox>
+                </List.Item>
+              )}
             />
           </Form.Item>
         </Form>

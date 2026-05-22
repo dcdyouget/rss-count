@@ -1,15 +1,16 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
-  Table, Button, Modal, Form, Input, Select, Upload, Popconfirm,
+  Table, Button, Modal, Form, Input, Select, Transfer, Upload, Popconfirm,
   Typography, theme, message, Image, Avatar, Tabs, Space, Flex,
 } from 'antd';
 import {
-  PlusOutlined, UploadOutlined, DownloadOutlined,
+  PlusOutlined, UploadOutlined, DownloadOutlined, SettingOutlined,
 } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
 import {
   useRssSourceList, useCreateRssSource, useDeleteRssSource,
   useImportOpml, useExportOpml, useRssGroups, useCreateRssGroup,
+  useRssSourceSearch, useAddSourcesToGroup,
 } from '@/api/rssSources';
 import type { RssSource, RssGroup } from '@/types';
 
@@ -26,6 +27,31 @@ export default function RssSourceManagement() {
   const importOpml = useImportOpml();
   const exportOpml = useExportOpml();
   const createGroup = useCreateRssGroup();
+
+  // Search
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [searchPage, setSearchPage] = useState(1);
+
+  // Manage sources modal
+  const [manageModalOpen, setManageModalOpen] = useState(false);
+  const [manageGroup, setManageGroup] = useState<RssGroup | null>(null);
+  const [manageTargetKeys, setManageTargetKeys] = useState<string[]>([]);
+
+  const keyword = searchKeyword.trim();
+  const { data: searchResult, isLoading: searchLoading } = useRssSourceSearch(keyword, searchPage, 20, { enabled: !!keyword });
+  const { data: allSources = [] } = useRssSourceList();
+  const addSourcesToGroup = useAddSourcesToGroup();
+
+  const displaySources = keyword ? (searchResult?.items ?? []) : sources;
+  const tableLoading = keyword ? searchLoading : sourcesLoading;
+
+  const transferDataSource = useMemo(() =>
+    allSources.map(s => ({
+      key: String(s.id),
+      title: s.name || s.url,
+    })),
+    [allSources]
+  );
 
   // Add source modal
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -81,6 +107,31 @@ export default function RssSourceManagement() {
     } catch {
       // handled
     }
+  };
+
+  const handleSearch = (value: string) => {
+    setSearchKeyword(value);
+    setSearchPage(1);
+  };
+
+  const handleOpenManageSources = (group: RssGroup) => {
+    setManageGroup(group);
+    setManageTargetKeys(
+      allSources
+        .filter(s => s.groupIds.includes(group.id))
+        .map(s => String(s.id))
+    );
+    setManageModalOpen(true);
+  };
+
+  const handleSaveManageSources = async () => {
+    if (!manageGroup) return;
+    await addSourcesToGroup.mutateAsync({
+      groupId: manageGroup.id,
+      sourceIds: manageTargetKeys.map(Number),
+    });
+    message.success('分组源已更新');
+    setManageModalOpen(false);
   };
 
   const columns = [
@@ -191,6 +242,14 @@ export default function RssSourceManagement() {
         </Space>
       </Flex>
 
+      {/* Search */}
+      <Input.Search
+        placeholder="搜索RSS源..."
+        allowClear
+        onSearch={handleSearch}
+        style={{ marginBottom: 16, maxWidth: 400 }}
+      />
+
       {/* Group tabs */}
       <Tabs
         activeKey={activeGroupId === undefined ? 'all' : String(activeGroupId)}
@@ -205,7 +264,21 @@ export default function RssSourceManagement() {
           { key: 'all', label: '全部' },
           ...groups.map((g: RssGroup) => ({
             key: String(g.id),
-            label: `${g.name} (${g.sourceCount})`,
+            label: (
+              <span>
+                {g.name} ({g.sourceCount})
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<SettingOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenManageSources(g);
+                  }}
+                  style={{ marginLeft: 4 }}
+                />
+              </span>
+            ),
           })),
           { key: 'add-group', label: '+', disabled: groupsLoading },
         ]}
@@ -214,10 +287,16 @@ export default function RssSourceManagement() {
       {/* Table */}
       <Table
         columns={columns}
-        dataSource={sources}
+        dataSource={displaySources}
         rowKey="id"
-        loading={sourcesLoading}
-        pagination={{
+        loading={tableLoading}
+        pagination={keyword ? {
+          pageSize: 20,
+          current: searchPage,
+          total: searchResult?.total ?? 0,
+          onChange: (page: number) => setSearchPage(page),
+          showTotal: (total: number) => `共 ${total} 条`,
+        } : {
           pageSize: 20,
           showSizeChanger: true,
           showTotal: (total: number) => `共 ${total} 条`,
@@ -312,6 +391,33 @@ export default function RssSourceManagement() {
             )}
           </div>
         )}
+      </Modal>
+
+      {/* Manage sources modal */}
+      <Modal
+        title={manageGroup ? `管理分组源：${manageGroup.name}` : '管理分组源'}
+        open={manageModalOpen}
+        onCancel={() => {
+          setManageModalOpen(false);
+          setManageGroup(null);
+          setManageTargetKeys([]);
+        }}
+        onOk={handleSaveManageSources}
+        confirmLoading={addSourcesToGroup.isPending}
+        width={640}
+      >
+        <Transfer
+          dataSource={transferDataSource}
+          targetKeys={manageTargetKeys}
+          onChange={(nextKeys) => setManageTargetKeys(nextKeys as string[])}
+          render={(item) => item.title}
+          titles={['全部源', '已选源']}
+          listStyle={{ width: 270, height: 400 }}
+          showSearch
+          filterOption={(inputValue, item) =>
+            item.title.toLowerCase().includes(inputValue.toLowerCase())
+          }
+        />
       </Modal>
     </Flex>
   );

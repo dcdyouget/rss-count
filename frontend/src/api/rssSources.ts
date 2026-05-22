@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import client from './client';
-import type { RssSource, RssGroup, OpmlImportResponse } from '@/types';
+import type { RssSource, RssGroup, PaginatedResponse, OpmlImportResponse } from '@/types';
 
 // ---------- RSS Sources ----------
 
@@ -11,6 +11,17 @@ export function useRssSourceList(groupId?: number) {
       client
         .get<RssSource[]>('/rss-sources', { params: groupId ? { groupId } : {} })
         .then((r) => r.data),
+  });
+}
+
+export function useRssSourceSearch(keyword: string, page: number = 1, size: number = 20, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ['rss-sources', 'search', { keyword, page, size }],
+    queryFn: () =>
+      client
+        .get<PaginatedResponse<RssSource>>('/rss-sources/search', { params: { keyword, page, size } })
+        .then((r) => r.data),
+    enabled: options?.enabled ?? !!keyword,
   });
 }
 
@@ -137,6 +148,18 @@ export function useDeleteRssGroup() {
   return useMutation({
     mutationFn: (id: number) => client.delete(`/rss-groups/${id}`),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['rss-groups'] });
+    },
+  });
+}
+
+export function useAddSourcesToGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ groupId, sourceIds }: { groupId: number; sourceIds: number[] }) =>
+      client.put(`/rss-groups/${groupId}/sources`, sourceIds).then((r) => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['rss-sources'] });
       queryClient.invalidateQueries({ queryKey: ['rss-groups'] });
     },
   });

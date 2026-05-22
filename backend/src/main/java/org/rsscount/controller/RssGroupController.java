@@ -4,6 +4,9 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.transaction.Transactional;
+import org.rsscount.entity.RssGroup;
+import org.rsscount.entity.RssSourceGroup;
 import org.rsscount.service.RssGroupService;
 import org.rsscount.service.RssGroupService.CreateGroupRequest;
 import org.rsscount.service.RssGroupService.UpdateGroupRequest;
@@ -52,5 +55,24 @@ public class RssGroupController {
     public Response delete(@PathParam("id") Long id) {
         service.delete(id);
         return Response.noContent().build();
+    }
+
+    @PUT
+    @Path("/{id}/sources")
+    @Transactional
+    public Response addSources(@PathParam("id") Long id, List<Long> sourceIds) {
+        RssGroup group = RssGroup.findById(id);
+        if (group == null) return Response.status(404).build();
+
+        RssSourceGroup.delete("rssGroupId", id);
+        if (sourceIds != null) {
+            for (Long sourceId : sourceIds) {
+                RssSourceGroup sg = new RssSourceGroup();
+                sg.rssSourceId = sourceId;
+                sg.rssGroupId = id;
+                sg.persist();
+            }
+        }
+        return Response.ok().build();
     }
 }
