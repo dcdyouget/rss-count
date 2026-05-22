@@ -7,7 +7,7 @@ import {
   InboxOutlined,
 } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
-import { StructuredContentRenderer } from '@/components/shared/StructuredContentRenderer';
+import { CleanedHtmlRenderer } from '@/components/shared/CleanedHtmlRenderer';
 import type { NewsDetail } from '@/types';
 
 const { Title, Text } = Typography;
@@ -30,7 +30,7 @@ const NewsContent: React.FC<NewsContentProps> = ({
   const { token } = theme.useToken();
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: token.marginLG }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: token.marginLG, height: 'calc(100vh - 48px)', overflow: 'hidden' }}>
       {/* Top bar: back button + title + meta */}
       <Flex vertical gap={token.marginXS}>
         {backUrl && (
@@ -74,14 +74,10 @@ const NewsContent: React.FC<NewsContentProps> = ({
         </Flex>
       </Flex>
 
-      <Flex gap={token.marginLG} style={{ flex: 1 }}>
+      <Flex gap={token.marginLG} style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {/* Left: main content area */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {news.structuredContent && news.structuredContent.length > 0 ? (
-            <StructuredContentRenderer content={news.structuredContent} />
-          ) : (
-            <Text type="secondary">暂无正文内容</Text>
-          )}
+        <div style={{ flex: 1, minWidth: 0, maxWidth: 720, margin: '0 auto' }}>
+          <CleanedHtmlRenderer html={news.structuredContent} />
         </div>
 
         {/* Right: sidebar */}
@@ -93,6 +89,9 @@ const NewsContent: React.FC<NewsContentProps> = ({
               display: 'flex',
               flexDirection: 'column',
               gap: token.marginMD,
+              position: 'sticky',
+              top: 24,
+              alignSelf: 'flex-start',
             }}
           >
             {/* Author info */}
@@ -111,7 +110,7 @@ const NewsContent: React.FC<NewsContentProps> = ({
             )}
 
             {/* Tags */}
-            {news.tags && news.tags.length > 0 && (
+            {Array.isArray(news.tags) && news.tags.length > 0 && (
               <div>
                 <Text
                   strong

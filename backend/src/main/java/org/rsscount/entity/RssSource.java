@@ -27,6 +27,12 @@ public class RssSource extends PanacheEntityBase {
     @Column(name = "last_fetch_at")
     public LocalDateTime lastFetchAt;
 
+    @Column(name = "etag", length = 512)
+    public String etag;
+
+    @Column(name = "last_modified", length = 512)
+    public String lastModified;
+
     @Column(name = "total_fetched", nullable = false)
     public int totalFetched = 0;
 

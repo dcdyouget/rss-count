@@ -17,37 +17,3 @@
   animation: status-pulse 1.5s ease-in-out infinite;
 }
 
-/* StructuredContentRenderer - blockquote 样式 */
-.structured-content blockquote {
-  margin: 8px 0;
-  padding: 12px 16px;
-  border-left: 4px solid #2563EB;
-  background: #F8FAFC;
-  border-radius: 0 8px 8px 0;
-  font-size: 14px;
-  line-height: 1.6;
-  color: #6B7280;
-}
-
-/* StructuredContentRenderer - code 样式 */
-.structured-content pre {
-  margin: 8px 0;
-  padding: 16px;
-  background: #1e1e1e;
-  border-radius: 8px;
-  overflow-x: auto;
-}
-
-.structured-content pre code {
-  font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
-  font-size: 13px;
-  line-height: 1.6;
-  color: #e0e0e0;
-}
-
-/* StructuredContentRenderer - list 样式 */
-.structured-content ul,
-.structured-content ol {
-  margin: 8px 0;
-  padding-left: 24px;
-}

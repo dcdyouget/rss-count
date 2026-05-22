@@ -201,18 +201,41 @@ public class TaskExecutor {
                 Log.infof("Task %d: Fetching source [%d/%d] %s", taskId, idx, totalSources, source.name);
 
                 emitProgress(taskId, "progress", new CombinedProgress(
-                    new PullingProgress(false, source.name, idx + "/" + totalSources, totalNew.get()),
-                    new FormattingProgress(false, formattedCount.get(), totalNew.get(), "正在拉取")
+                    new PullingProgress(false, source.name, idx + "/" + totalSources, totalFetched.get()),
+                    new FormattingProgress(false, formattedCount.get(), totalNew.get(), "拉取RSS源")
                 ));
 
                 try {
-                    com.rometools.rome.feed.synd.SyndFeed feed = rssFetchService.parseFeed(source.url);
+                    RssFetchService.FetchResult result = rssFetchService.parseFeed(source);
+                    // 更新 ETag 缓存 (re-fetch managed entity within the transaction)
+                    QuarkusTransaction.run(() -> {
+                        RssSource managed = RssSource.findById(source.id);
+                        if (managed != null) {
+                            if (result.etag() != null) managed.etag = result.etag();
+                            if (result.lastModified() != null) managed.lastModified = result.lastModified();
+                            managed.lastFetchAt = LocalDateTime.now();
+                            managed.persist();
+                        }
+                    });
+
+                    if (result.feed() == null) {
+                        // 304 Not Modified — 跳过该源
+                        Log.infof("Task %d: Source %s not modified (304), skipping", taskId, source.name);
+                        continue;
+                    }
+                    com.rometools.rome.feed.synd.SyndFeed feed = result.feed();
                     List<com.rometools.rome.feed.synd.SyndEntry> entries = feed.getEntries();
 
                     if (entries == null || entries.isEmpty()) {
                         Log.infof("Task %d: Source %s has no entries", taskId, source.name);
                         continue;
                     }
+
+                    // Signal transition from "fetching RSS source" to "parsing news entries"
+                    emitProgress(taskId, "progress", new CombinedProgress(
+                        new PullingProgress(false, source.name, idx + "/" + totalSources, totalFetched.get()),
+                        new FormattingProgress(false, formattedCount.get(), totalNew.get(), "拉取新闻")
+                    ));
 
                     for (com.rometools.rome.feed.synd.SyndEntry entry : entries) {
                         totalFetched.incrementAndGet();
@@ -222,6 +245,14 @@ public class TaskExecutor {
                             News news = rssFetchService.syndEntryToNews(entry, source, report);
                             if (news == null || news.title == null || news.title.isBlank()) {
                                 continue;
+                            }
+
+                            // Time range filtering
+                            if (news.publishedAt != null) {
+                                if (news.publishedAt.isBefore(task.timeRangeStart)
+                                    || news.publishedAt.isAfter(task.timeRangeEnd)) {
+                                    continue;
+                                }
                             }
 
                             // In-memory dedup: check SimHash against map
@@ -259,11 +290,7 @@ public class TaskExecutor {
                                 try {
                                     // Persist raw news first, then format
                                     persistAndFormat(news, report);
-                                    int done = formattedCount.incrementAndGet();
-                                    emitProgress(taskId, "progress", new CombinedProgress(
-                                        new PullingProgress(true, "", totalSources + "/" + totalSources, totalNew.get()),
-                                        new FormattingProgress(false, done, totalNew.get(), "格式化中")
-                                    ));
+                                    formattedCount.incrementAndGet();
                                 } catch (Exception e) {
                                     Log.debugf("Task %d: Format failed for news: %s", taskId, e.getMessage());
                                     formattedCount.incrementAndGet();
@@ -297,7 +324,7 @@ public class TaskExecutor {
 
             // Emit formatting completion (markTaskCompleted handled by caller)
             emitProgress(taskId, "progress", new CombinedProgress(
-                new PullingProgress(true, "", totalSources + "/" + totalSources, totalNew.get()),
+                new PullingProgress(true, "", totalSources + "/" + totalSources, totalFetched.get()),
                 new FormattingProgress(true, formattedCount.get(), totalNew.get(), "格式化完成")
             ));
 
@@ -398,10 +425,10 @@ public class TaskExecutor {
             managedReport.newsCount = (int) count;
         }
 
+        emitProgress(task.id, "complete", new CompleteData(report.id));
+
         // Clear emitter list
         emitters.remove(task.id);
-
-        emitProgress(task.id, "complete", new CompleteData(report.id));
         Log.infof("Task %d: Completed with report %d", task.id, report.id);
     }
 
@@ -414,10 +441,10 @@ public class TaskExecutor {
         managed.endedAt = LocalDateTime.now();
         managed.errorMessage = errorMessage;
 
+        emitProgress(task.id, "error", new ErrorData(errorMessage));
+
         // Clear emitter list
         emitters.remove(task.id);
-
-        emitProgress(task.id, "error", new ErrorData(errorMessage));
         Log.errorf("Task %d: Failed — %s", task.id, errorMessage);
     }
 
@@ -428,7 +455,6 @@ public class TaskExecutor {
         if (list == null || list.isEmpty()) return;
 
         SseProgressEvent eventObj = new SseProgressEvent(event, data);
-        String json = toJsonSafely(data);
 
         for (Consumer<SseProgressEvent> callback : list) {
             try {

@@ -31,17 +31,33 @@ export function useReport(id: number | null) {
 }
 
 /**
- * Get the news list from a report's detail (extracts `news` from ReportWithNews).
- * This reuses the same query as useReport — no separate API call.
+ * Fetch paginated news summary list under a report.
+ *
+ * Currently the backend returns all news at once; client-side pagination
+ * is applied via `select` with the requested `page`/`size`. When the
+ * backend adds pagination to `GET /reports/:id/news`, update the
+ * `queryKey` and `queryFn` while keeping the return type unchanged.
  */
-export function useReportNews(reportId: number | null) {
+export function useReportNews(
+  reportId: number | null,
+  params?: { page?: number; size?: number },
+) {
+  const page = params?.page ?? 1;
+  const size = params?.size ?? 12;
+
   return useQuery({
-    queryKey: ['reports', 'detail', reportId, 'news'],
+    queryKey: ['reports', 'detail', reportId, 'all-news'],
     queryFn: () =>
       client
         .get<{ news: NewsSummary[] }>(`/reports/${reportId}`)
         .then((r) => r.data.news),
     enabled: !!reportId,
+    select: (allNews) => {
+      const total = allNews.length;
+      const start = (page - 1) * size;
+      const items = allNews.slice(start, start + size);
+      return { items, total, page, size };
+    },
   });
 }
 

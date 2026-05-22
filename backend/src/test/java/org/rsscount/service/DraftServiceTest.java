@@ -79,7 +79,7 @@ class DraftServiceTest {
         news.publishedAt = LocalDateTime.now().minusHours(1);
         news.contentLength = 100;
         news.structuredContent = """
-            [{"type":"heading","level":2,"text":"%s 详细内容"},{"type":"paragraph","text":"这是%s的正文段落一。段落二。段落三。段落四。段落五。段落六。段落七。段落八。段落九。段落十。"}]
+            <h2>%s 详细内容</h2><p>这是%s的正文段落一。段落二。段落三。段落四。段落五。段落六。段落七。段落八。段落九。段落十。</p>
             """.formatted(title, title);
         news.createdAt = LocalDateTime.now();
         news.persist();

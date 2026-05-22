@@ -1,8 +1,5 @@
 package org.rsscount.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import io.quarkus.panache.common.Page;
 import io.quarkus.panache.common.Sort;
@@ -12,6 +9,7 @@ import jakarta.transaction.Transactional;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
+import org.jsoup.Jsoup;
 import org.rsscount.entity.*;
 
 import java.time.LocalDateTime;
@@ -23,8 +21,6 @@ import java.util.stream.Collectors;
  */
 @ApplicationScoped
 public class DraftService {
-
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Inject
     AiService aiService;
@@ -454,45 +450,14 @@ public class DraftService {
     }
 
     /**
-     * Extract plain text from structured_content JSON.
-     * The JSON structure is an array of nodes with type and text fields.
+     * Extract plain text from cleaned HTML content (structured_content).
+     * Strips all HTML tags, returning only the visible text.
      */
-    private String extractPlainTextFromStructuredContent(String structuredContent) {
-        if (structuredContent == null || structuredContent.isBlank()) {
+    private String extractPlainTextFromStructuredContent(String htmlContent) {
+        if (htmlContent == null || htmlContent.isBlank()) {
             return null;
         }
-
-        try {
-            JsonNode root = MAPPER.readTree(structuredContent);
-            if (!root.isArray()) {
-                return null;
-            }
-
-            StringBuilder text = new StringBuilder();
-            for (JsonNode node : root) {
-                String type = node.has("type") ? node.get("type").asText() : "";
-                String nodeText = node.has("text") ? node.get("text").asText() : "";
-                String alt = node.has("alt") ? node.get("alt").asText() : "";
-
-                if ("paragraph".equals(type) || "heading".equals(type)) {
-                    if (!nodeText.isEmpty()) {
-                        if (text.length() > 0) text.append("\n");
-                        text.append(nodeText);
-                    }
-                } else if ("blockquote".equals(type)) {
-                    if (!nodeText.isEmpty()) {
-                        if (text.length() > 0) text.append("\n");
-                        text.append("[引用] ").append(nodeText);
-                    }
-                } else if ("image".equals(type) && !alt.isEmpty()) {
-                    if (text.length() > 0) text.append("\n");
-                    text.append("[图片: ").append(alt).append("]");
-                }
-            }
-            return text.toString();
-        } catch (JsonProcessingException e) {
-            return null;
-        }
+        return Jsoup.parse(htmlContent).text();
     }
 
 }

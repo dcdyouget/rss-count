@@ -102,7 +102,7 @@ class TaskExecutorTest {
         Mockito.when(mockNewsFormatService.formatOneNews(any(News.class), any(Report.class)))
             .thenAnswer(invocation -> {
                 News news = invocation.getArgument(0);
-                news.structuredContent = "[{\"type\":\"paragraph\",\"text\":\"格式化内容\"}]";
+                news.structuredContent = "<p>格式化内容</p>";
                 news.simHash = SimHash.compute(news.title);
                 news.summary = "AI摘要";
                 return news;
@@ -202,7 +202,7 @@ class TaskExecutorTest {
         Mockito.when(mockNewsFormatService.formatOneNews(any(News.class), any(Report.class)))
             .thenAnswer(invocation -> {
                 News n = invocation.getArgument(0);
-                n.structuredContent = "[]";
+                n.structuredContent = "<p>SSE测试内容</p>";
                 return n;
             });
 

@@ -13,6 +13,7 @@ import org.rsscount.service.NewsService;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Path("/api/v1/reports")
@@ -137,17 +138,23 @@ public class ReportController {
         }
 
         // Get tags
-        List<String> tags = new ArrayList<>();
+        List<String> tags;
         try {
             List<org.rsscount.entity.NewsTag> newsTags =
                 org.rsscount.entity.NewsTag.find("newsId", news.id).list();
-            if (!newsTags.isEmpty()) {
+            if (newsTags != null && !newsTags.isEmpty()) {
                 List<Long> tagIds = newsTags.stream().map(nt -> nt.tagId).toList();
                 List<Tag> tagEntities = Tag.find("id in ?1", tagIds).list();
-                tags = tagEntities.stream().map(t -> t.name).collect(Collectors.toList());
+                tags = tagEntities.stream()
+                    .map(t -> t.name)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+            } else {
+                tags = new ArrayList<>();
             }
         } catch (Exception e) {
             // Tags are optional
+            tags = new ArrayList<>();
         }
 
         return new NewsDetail(

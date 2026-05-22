@@ -57,11 +57,11 @@ public class NewsFormatService {
             raw.title = TextCleaner.clean(raw.title);
         }
 
-        // 2. Extract structured content from raw HTML
+        // 2. Clean raw HTML into safe, sanitized HTML
         String rawContent = raw.rawContent;
         if (rawContent != null && !rawContent.isBlank()) {
-            String structured = contentExtractor.extract(rawContent);
-            raw.structuredContent = structured;
+            String cleaned = contentExtractor.clean(rawContent, raw.sourceUrl);
+            raw.structuredContent = cleaned;
         }
 
         // 3. Extract header image

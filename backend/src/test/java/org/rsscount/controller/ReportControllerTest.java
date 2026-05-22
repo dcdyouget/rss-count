@@ -172,7 +172,7 @@ class ReportControllerTest {
             news.sourceRssName = "新闻源";
             news.sourceUrl = "https://example.com/article";
             news.summary = "新闻摘要内容";
-            news.structuredContent = "[{\"type\":\"paragraph\",\"text\":\"正文\"}]";
+            news.structuredContent = "<p>正文</p>";
             news.isRead = false;
             news.inMaterialPile = false;
             news.createdAt = LocalDateTime.now();

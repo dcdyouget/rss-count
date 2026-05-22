@@ -8,6 +8,7 @@ import jakarta.transaction.Transactional;
 import org.rsscount.entity.Report;
 import org.rsscount.entity.RssGroup;
 import org.rsscount.entity.Settings;
+import org.rsscount.entity.RssSource;
 import org.rsscount.entity.Task;
 
 import java.time.LocalDateTime;
@@ -44,6 +45,13 @@ public class TaskScheduler {
             long runningCount = Task.count("status", Task.STATUS_RUNNING);
             if (runningCount > 0) {
                 Log.debug("TaskScheduler: Skipping — there are running tasks");
+                return;
+            }
+
+            // Skip if no RSS sources available
+            long sourceCount = RssSource.count("isActive", true);
+            if (sourceCount == 0) {
+                Log.debug("TaskScheduler: Skipping — no RSS sources available");
                 return;
             }
 

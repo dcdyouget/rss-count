@@ -1,11 +1,15 @@
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 /**
  * 格式化 ISO 日期为 "YYYY-MM-DD HH:mm" 显示格式
  */
 export function formatDateTime(isoStr: string | null | undefined): string {
   if (!isoStr) return '--';
-  return dayjs(isoStr).format('YYYY-MM-DD HH:mm');
+  return dayjs.tz(isoStr, 'Asia/Shanghai').format('YYYY-MM-DD HH:mm');
 }
 
 /**
@@ -13,7 +17,7 @@ export function formatDateTime(isoStr: string | null | undefined): string {
  */
 export function formatShortDateTime(isoStr: string | null | undefined): string {
   if (!isoStr) return '--';
-  return dayjs(isoStr).format('MM-DD HH:mm');
+  return dayjs.tz(isoStr, 'Asia/Shanghai').format('MM-DD HH:mm');
 }
 
 /**
@@ -21,7 +25,7 @@ export function formatShortDateTime(isoStr: string | null | undefined): string {
  */
 export function formatTime(isoStr: string | null | undefined): string {
   if (!isoStr) return '--';
-  return dayjs(isoStr).format('HH:mm');
+  return dayjs.tz(isoStr, 'Asia/Shanghai').format('HH:mm');
 }
 
 /**
@@ -53,9 +57,9 @@ export function formatChangePercent(
  * 格式化时间范围为 "2026-05-20 08:00 ~ 14:00"
  */
 export function formatTimeRange(start: string, end: string): string {
-  const startDate = dayjs(start).format('YYYY-MM-DD');
-  const startTime = dayjs(start).format('HH:mm');
-  const endTime = dayjs(end).format('HH:mm');
+  const startDate = dayjs.tz(start, 'Asia/Shanghai').format('YYYY-MM-DD');
+  const startTime = dayjs.tz(start, 'Asia/Shanghai').format('HH:mm');
+  const endTime = dayjs.tz(end, 'Asia/Shanghai').format('HH:mm');
   return `${startDate} ${startTime} ~ ${endTime}`;
 }
 
@@ -64,8 +68,8 @@ export function formatTimeRange(start: string, end: string): string {
  */
 export function formatRelativeTime(isoStr: string | null | undefined): string {
   if (!isoStr) return '--';
-  const now = dayjs();
-  const then = dayjs(isoStr);
+  const now = dayjs.tz();
+  const then = dayjs.tz(isoStr, 'Asia/Shanghai');
   const diffMin = now.diff(then, 'minute');
   if (diffMin < 1) return '刚刚';
   if (diffMin < 60) return `${diffMin}分钟前`;

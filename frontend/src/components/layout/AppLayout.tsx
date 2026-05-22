@@ -33,6 +33,10 @@ export default function AppLayout() {
       <Layout.Sider
         width={SIDER_WIDTH}
         style={{
+          position: 'sticky',
+          top: 0,
+          height: '100vh',
+          overflow: 'auto',
           background: '#F8FAFC',
           borderRight: '1px solid #E5E7EB',
         }}

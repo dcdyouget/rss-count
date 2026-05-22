@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import {
-  Typography, Row, Col, Anchor, Button, Skeleton,
-  Empty, theme, Flex,
+  Typography, Row, Col, Button, Skeleton,
+  Empty, theme, Flex, Input,
 } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -14,6 +14,8 @@ import { formatTimeRange } from '@/utils/format';
 
 const { Title, Text } = Typography;
 
+const PAGE_SIZE = 10;
+
 export default function ReportDetail() {
   const { token } = theme.useToken();
   const { id } = useParams<{ id: string }>();
@@ -21,6 +23,8 @@ export default function ReportDetail() {
 
   const [viewMode, setViewMode] = useState<'grid' | 'detail'>('grid');
   const [selectedNewsId, setSelectedNewsId] = useState<number | null>(null);
+  const [searchText, setSearchText] = useState('');
+  const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
 
   const { data: report, isLoading } = useReport(reportId);
   const { data: newsDetail } = useReportNewsDetail(reportId, selectedNewsId);
@@ -28,7 +32,35 @@ export default function ReportDetail() {
   const markRead = useMarkRead();
   const batchPile = useBatchMaterialPile();
 
+  // --- Client-side search filter ---
+  const filteredNews = useMemo(() => {
+    if (!report?.news) return [];
+    if (!searchText.trim()) return report.news;
+    const keyword = searchText.trim().toLowerCase();
+    return report.news.filter((n) =>
+      n.title.toLowerCase().includes(keyword),
+    );
+  }, [report?.news, searchText]);
+
+  // --- Pagination slice ---
+  const displayedNews = useMemo(
+    () => filteredNews.slice(0, displayCount),
+    [filteredNews, displayCount],
+  );
+
+  const hasMore = displayCount < filteredNews.length;
+
+  const savedScrollY = useRef<number>(0);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  const handleSearchChange = (value: string) => {
+    setSearchText(value);
+    setDisplayCount(PAGE_SIZE); // reset pagination on search
+  };
+
   const handleNewsClick = (newsId: number) => {
+    savedScrollY.current = window.scrollY;
+    window.scrollTo(0, 0);
     setSelectedNewsId(newsId);
     setViewMode('detail');
   };
@@ -36,8 +68,29 @@ export default function ReportDetail() {
   const handleBack = () => {
     setViewMode('grid');
     setSelectedNewsId(null);
+    requestAnimationFrame(() => window.scrollTo(0, savedScrollY.current));
   };
 
+  // Infinite scroll via IntersectionObserver
+  useEffect(() => {
+    if (viewMode !== 'grid' || !hasMore) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setDisplayCount((prev) => prev + PAGE_SIZE);
+        }
+      },
+      { threshold: 0, rootMargin: '100px' },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [viewMode, hasMore]);
+
+  // --- Loading state ---
   if (isLoading) {
     return (
       <div style={{ padding: token.paddingLG }}>
@@ -46,6 +99,7 @@ export default function ReportDetail() {
     );
   }
 
+  // --- Report not found ---
   if (!report) {
     return (
       <div style={{ padding: token.paddingLG }}>
@@ -56,6 +110,7 @@ export default function ReportDetail() {
 
   return (
     <div>
+      {/* Report header */}
       <Flex vertical gap={token.marginSM} style={{ marginBottom: token.marginLG }}>
         <Title level={2} style={{ margin: 0 }}>
           {report.name}
@@ -67,116 +122,87 @@ export default function ReportDetail() {
         )}
       </Flex>
 
-      {report.news.length === 0 ? (
-        <Empty description="暂无新闻" />
-      ) : (
-        <div style={{ display: 'flex', gap: token.marginLG }}>
-          {/* Left TOC — only in grid mode */}
-          {viewMode === 'grid' && (
-            <div
+      {/* Search bar — only visible in grid mode */}
+      {viewMode === 'grid' && (
+        <Input.Search
+          placeholder="搜索新闻..."
+          allowClear
+          value={searchText}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          onSearch={handleSearchChange}
+          style={{ marginBottom: token.marginLG, maxWidth: 400 }}
+        />
+      )}
+
+      {/* Main content area */}
+      <AnimatePresence mode="wait">
+        {viewMode === 'grid' ? (
+          <motion.div
+            key="grid"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.2 }}
+          >
+            {report.news.length === 0 ? (
+              <Empty description="暂无新闻" />
+            ) : displayedNews.length === 0 ? (
+              <Empty description="未找到匹配的新闻" />
+            ) : (
+              <>
+                <Row gutter={[16, 16]}>
+                  {displayedNews.map((item) => (
+                    <Col key={item.id} xs={24} sm={24} lg={12} xl={8}>
+                      <NewsCard
+                        news={item}
+                        onClick={() => handleNewsClick(item.id)}
+                      />
+                    </Col>
+                  ))}
+                </Row>
+
+                {/* Infinite scroll sentinel */}
+                {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
+              </>
+            )}
+          </motion.div>
+        ) : selectedNewsId && newsDetail ? (
+          <motion.div
+            key="detail"
+            initial={{ opacity: 0, x: 30 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 30 }}
+            transition={{ duration: 0.25 }}
+          >
+            <Button
+              type="text"
+              icon={<ArrowLeftOutlined />}
+              onClick={handleBack}
               style={{
-                width: 200,
-                flexShrink: 0,
-                position: 'sticky',
-                top: 24,
-                alignSelf: 'flex-start',
-                maxHeight: 'calc(100vh - 120px)',
-                overflow: 'auto',
+                marginBottom: token.marginMD,
+                color: token.colorTextSecondary,
               }}
             >
-              <Text
-                strong
-                style={{
-                  fontSize: token.fontSizeSM,
-                  color: token.colorTextSecondary,
-                  display: 'block',
-                  marginBottom: token.marginSM,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                }}
-              >
-                目录
-              </Text>
-              <Anchor
-                items={report.news.map((n) => ({
-                  key: n.id,
-                  href: `#news-${n.id}`,
-                  title: n.title,
-                }))}
-                replace
-              />
-            </div>
-          )}
-
-          {/* Content area */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <AnimatePresence mode="wait">
-              {viewMode === 'grid' ? (
-                <motion.div
-                  key="grid"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <Row gutter={[16, 16]}>
-                    {report.news.map((item) => (
-                      <Col
-                        key={item.id}
-                        xs={24}
-                        sm={24}
-                        lg={12}
-                        xl={8}
-                        id={`news-${item.id}`}
-                      >
-                        <NewsCard
-                          news={item}
-                          onClick={() => handleNewsClick(item.id)}
-                        />
-                      </Col>
-                    ))}
-                  </Row>
-                </motion.div>
-              ) : selectedNewsId && newsDetail ? (
-                <motion.div
-                  key="detail"
-                  initial={{ opacity: 0, x: 30 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 30 }}
-                  transition={{ duration: 0.25 }}
-                >
-                  <Button
-                    type="text"
-                    icon={<ArrowLeftOutlined />}
-                    onClick={handleBack}
-                    style={{
-                      marginBottom: token.marginMD,
-                      color: token.colorTextSecondary,
-                    }}
-                  >
-                    返回报告
-                  </Button>
-                  <NewsContent
-                    news={newsDetail}
-                    showSidebar
-                    onMarkRead={(nid) => markRead.mutate(nid)}
-                    onAddToMaterialPile={(nid) =>
-                      batchPile.mutate({
-                        newsIds: [nid],
-                        action: 'ADD',
-                      })
-                    }
-                  />
-                </motion.div>
-              ) : selectedNewsId ? (
-                <div style={{ padding: token.paddingLG }}>
-                  <Skeleton active paragraph={{ rows: 6 }} />
-                </div>
-              ) : null}
-            </AnimatePresence>
+              返回报告
+            </Button>
+            <NewsContent
+              news={newsDetail}
+              showSidebar
+              onMarkRead={(nid) => markRead.mutate(nid)}
+              onAddToMaterialPile={(nid) =>
+                batchPile.mutate({
+                  newsIds: [nid],
+                  action: 'ADD',
+                })
+              }
+            />
+          </motion.div>
+        ) : selectedNewsId ? (
+          <div style={{ padding: token.paddingLG }}>
+            <Skeleton active paragraph={{ rows: 6 }} />
           </div>
-        </div>
-      )}
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

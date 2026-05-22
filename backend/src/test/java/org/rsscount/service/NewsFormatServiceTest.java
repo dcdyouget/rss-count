@@ -84,8 +84,8 @@ class NewsFormatServiceTest {
         News raw = createRawNews(report, "  【快讯】测试新闻标题！  ", html);
 
         // Mock dependencies
-        Mockito.when(mockContentExtractor.extract(anyString()))
-            .thenReturn("[{\"type\":\"paragraph\",\"text\":\"正文内容\"}]");
+        Mockito.when(mockContentExtractor.clean(anyString(), anyString()))
+            .thenReturn("<p>正文内容</p>");
         Mockito.when(mockContentExtractor.extractHeaderImage(anyString()))
             .thenReturn("https://example.com/pic.jpg");
         Mockito.when(mockAiService.generateSummary(anyString(), anyInt()))
@@ -147,8 +147,8 @@ class NewsFormatServiceTest {
         News raw = createRawNews(report, "AI故障新闻", "<p>正文</p>");
 
         // AI fails
-        Mockito.when(mockContentExtractor.extract(anyString()))
-            .thenReturn("[{\"type\":\"paragraph\",\"text\":\"正文\"}]");
+        Mockito.when(mockContentExtractor.clean(anyString(), anyString()))
+            .thenReturn("<p>正文</p>");
         Mockito.when(mockAiService.generateSummary(anyString(), anyInt()))
             .thenReturn("");
         Mockito.when(mockAiService.extractTags(anyString()))
@@ -173,8 +173,8 @@ class NewsFormatServiceTest {
             newsList.add(createRawNews(report, "批量新闻" + i, "<p>内容" + i + "</p>"));
         }
 
-        Mockito.when(mockContentExtractor.extract(anyString()))
-            .thenReturn("[{\"type\":\"paragraph\",\"text\":\"内容\"}]");
+        Mockito.when(mockContentExtractor.clean(anyString(), anyString()))
+            .thenReturn("<p>内容</p>");
         Mockito.when(mockContentExtractor.extractHeaderImage(anyString()))
             .thenReturn(null);
         Mockito.when(mockAiService.generateSummary(anyString(), anyInt()))
@@ -199,8 +199,8 @@ class NewsFormatServiceTest {
             createRawNews(report, "新闻B", "<p>B</p>")
         );
 
-        Mockito.when(mockContentExtractor.extract(anyString()))
-            .thenReturn("[{\"type\":\"paragraph\",\"text\":\"content\"}]");
+        Mockito.when(mockContentExtractor.clean(anyString(), anyString()))
+            .thenReturn("<p>content</p>");
         Mockito.when(mockAiService.generateSummary(anyString(), anyInt()))
             .thenReturn("摘要");
         Mockito.when(mockAiService.extractTags(anyString()))
@@ -228,8 +228,8 @@ class NewsFormatServiceTest {
         News badNews = new News();
         badNews.report = report;
 
-        Mockito.when(mockContentExtractor.extract(anyString()))
-            .thenReturn("[{\"type\":\"paragraph\",\"text\":\"ok\"}]");
+        Mockito.when(mockContentExtractor.clean(anyString(), anyString()))
+            .thenReturn("<p>ok</p>");
         Mockito.when(mockAiService.generateSummary(anyString(), anyInt()))
             .thenReturn("摘要");
         Mockito.when(mockAiService.extractTags(anyString()))

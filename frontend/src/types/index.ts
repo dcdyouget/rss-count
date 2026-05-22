@@ -144,7 +144,7 @@ export interface NewsDetail extends NewsItem {
   author?: string;
   sourceUrl?: string;
   tags?: string[];
-  structuredContent?: StructuredContentNode[];
+  structuredContent?: string;
   materialPileAddedAt?: string;
 }
 
@@ -163,20 +163,6 @@ export interface BatchMaterialPileRequest {
 
 export interface BatchMaterialPileResponse {
   affected: number;
-}
-
-// ---------- 结构化内容 ----------
-
-export interface StructuredContentNode {
-  type: 'heading' | 'paragraph' | 'image' | 'blockquote' | 'list' | 'code';
-  level?: number;
-  text?: string;
-  src?: string;
-  alt?: string;
-  ordered?: boolean;
-  items?: string[];
-  language?: string;
-  code?: string;
 }
 
 // ---------- 稿件 ----------

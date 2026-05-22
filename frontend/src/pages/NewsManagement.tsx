@@ -1,19 +1,24 @@
 import { useState, useMemo } from 'react';
 import {
-  Table, Drawer, Input, Select, Button, Image, theme,
-  message, Space, Flex,
+  Table, Input, Select, Button, Image, theme,
+  message, Space, Flex, Skeleton,
 } from 'antd';
 import {
+  ArrowLeftOutlined,
   InboxOutlined,
 } from '@ant-design/icons';
 import type { TableRowSelection } from 'antd/es/table/interface';
 import NewsContent from '@/components/news/NewsContent';
-import { useNewsList, useBatchMaterialPile, useNewsDetail } from '@/api/news';
+import { formatDateTime } from '@/utils/format';
+import { useNewsList, useBatchMaterialPile, useNewsDetail, useMarkRead } from '@/api/news';
 import { useReportList } from '@/api/reports';
 import type { NewsItem, NewsListParams } from '@/types';
 
 export default function NewsManagement() {
   const { token } = theme.useToken();
+
+  // View mode: list or detail (full-screen news view)
+  const [viewMode, setViewMode] = useState<'list' | 'detail'>('list');
 
   // Filters
   const [params, setParams] = useState<NewsListParams>({
@@ -28,8 +33,9 @@ export default function NewsManagement() {
   const { data: newsData, isLoading } = useNewsList(params);
   const { data: reportsData } = useReportList({ page: 1, size: 200 });
   const batchMut = useBatchMaterialPile();
+  const markRead = useMarkRead();
 
-  // Detail drawer
+  // Detail
   const [detailId, setDetailId] = useState<number | null>(null);
   const { data: detailData } = useNewsDetail(detailId);
 
@@ -72,14 +78,19 @@ export default function NewsManagement() {
     });
   };
 
+  const handleBack = () => {
+    setViewMode('list');
+    setDetailId(null);
+  };
+
+  const handleViewDetail = (record: NewsItem) => {
+    setDetailId(record.id);
+    setViewMode('detail');
+  };
+
   const rowSelection: TableRowSelection<NewsItem> = {
     selectedRowKeys,
     onChange: (keys) => setSelectedRowKeys(keys as number[]),
-  };
-
-  const formatTime = (t: string) => {
-    const d = new Date(t);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   };
 
   const columns = [
@@ -136,7 +147,7 @@ export default function NewsManagement() {
       dataIndex: 'publishedAt',
       key: 'publishedAt',
       width: 170,
-      render: (t: string) => formatTime(t),
+      render: (t: string) => formatDateTime(t),
     },
     {
       title: '操作',
@@ -146,7 +157,7 @@ export default function NewsManagement() {
         <Button
           type="link"
           size="small"
-          onClick={() => setDetailId(record.id)}
+          onClick={() => handleViewDetail(record)}
         >
           查看详情
         </Button>
@@ -154,6 +165,41 @@ export default function NewsManagement() {
     },
   ];
 
+  // --- Full-screen detail view ---
+  if (viewMode === 'detail') {
+    return (
+      <div>
+        <Button
+          type="text"
+          icon={<ArrowLeftOutlined />}
+          onClick={handleBack}
+          style={{
+            marginBottom: token.marginMD,
+            color: token.colorTextSecondary,
+          }}
+        >
+          返回列表
+        </Button>
+        {detailData ? (
+          <NewsContent
+            news={detailData}
+            showSidebar
+            onMarkRead={(nid) => markRead.mutate(nid)}
+            onAddToMaterialPile={(nid) =>
+              batchMut.mutate({
+                newsIds: [nid],
+                action: 'ADD',
+              })
+            }
+          />
+        ) : (
+          <Skeleton active paragraph={{ rows: 6 }} />
+        )}
+      </div>
+    );
+  }
+
+  // --- List view ---
   return (
     <Flex vertical gap={token.marginLG}>
       {/* Filter bar */}
@@ -201,28 +247,6 @@ export default function NewsManagement() {
           showTotal: (total: number) => `共 ${total} 条`,
         }}
       />
-
-      {/* Detail Drawer */}
-      <Drawer
-        title="新闻详情"
-        open={detailId !== null}
-        onClose={() => setDetailId(null)}
-        width={720}
-        size="large"
-      >
-        {detailData && (
-          <NewsContent
-            news={detailData}
-            backUrl="/news"
-            onMarkRead={() => {
-              setDetailId(null);
-            }}
-            onAddToMaterialPile={() => {
-              message.success('已加入素材堆');
-            }}
-          />
-        )}
-      </Drawer>
     </Flex>
   );
 }

@@ -97,7 +97,7 @@ public class NewsService {
         }
 
         long total = panacheQuery.count();
-        List<News> newsList = panacheQuery.page(Page.of(page, size)).list();
+        List<News> newsList = panacheQuery.page(Page.of(page - 1, size)).list();
 
         List<NewsListItem> items = newsList.stream()
             .map(this::toListItem)
@@ -164,7 +164,7 @@ public class NewsService {
         );
 
         long total = query.count();
-        List<News> newsList = query.page(Page.of(page, size)).list();
+        List<News> newsList = query.page(Page.of(page - 1, size)).list();
 
         List<MaterialPileItem> items = newsList.stream()
             .map(n -> new MaterialPileItem(n.id, n.title, n.materialPileAddedAt))
@@ -199,18 +199,24 @@ public class NewsService {
 
     private NewsDetail toDetail(News news) {
         // Get tags from news_tag + tag tables
-        List<String> tags = new ArrayList<>();
+        List<String> tags;
         try {
             List<org.rsscount.entity.NewsTag> newsTags = org.rsscount.entity.NewsTag
                 .find("newsId", news.id).list();
-            if (!newsTags.isEmpty()) {
+            if (newsTags != null && !newsTags.isEmpty()) {
                 List<Long> tagIds = newsTags.stream().map(nt -> nt.tagId).toList();
                 List<org.rsscount.entity.Tag> tagEntities = org.rsscount.entity.Tag
                     .find("id in ?1", tagIds).list();
-                tags = tagEntities.stream().map(t -> t.name).collect(Collectors.toList());
+                tags = tagEntities.stream()
+                    .map(t -> t.name)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+            } else {
+                tags = new ArrayList<>();
             }
         } catch (Exception e) {
             // Tags are optional, ignore errors
+            tags = new ArrayList<>();
         }
 
         return new NewsDetail(

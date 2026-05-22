@@ -148,12 +148,10 @@ export default function TaskDetail() {
                   )}
                   {sse.progress.formatting.currentAction && (
                     <Text style={{ fontSize: token.fontSizeSM }}>
-                      {sse.progress.formatting.currentAction} (
-                      {sse.progress.formatting.formatted ?? 0}
-                      {sse.progress.formatting.total
-                        ? ` / ${sse.progress.formatting.total}`
-                        : ''}
-                      )
+                      {!sse.progress.pulling.done
+                        ? `${sse.progress.formatting.currentAction} ${sse.progress.pulling.sourceProgress ?? ''}`
+                        : `${sse.progress.formatting.currentAction} (${sse.progress.formatting.formatted ?? 0}${sse.progress.formatting.total ? ` / ${sse.progress.formatting.total}` : ''})`
+                      }
                     </Text>
                   )}
                 </Flex>

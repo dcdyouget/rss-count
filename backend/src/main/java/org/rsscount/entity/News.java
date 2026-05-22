@@ -33,6 +33,7 @@ public class News extends PanacheEntityBase {
     @Column(name = "raw_content", columnDefinition = "TEXT")
     public String rawContent;
 
+    /** Cleaned HTML content (safe subset of tags, no scripts/styles, absolute URLs) */
     @Column(name = "structured_content", columnDefinition = "TEXT")
     public String structuredContent;
 

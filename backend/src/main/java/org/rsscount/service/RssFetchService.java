@@ -14,7 +14,9 @@ import org.rsscount.entity.RssSource;
 import org.rsscount.util.SimHash;
 import org.rsscount.util.TextCleaner;
 
+import java.net.HttpURLConnection;
 import java.net.URL;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 
@@ -27,16 +29,34 @@ public class RssFetchService {
 
     static final long FETCH_TIMEOUT_SECONDS = 30;
 
+    public record FetchResult(SyndFeed feed, String etag, String lastModified) {}
+
     /**
-     * Parse an RSS feed URL into a SyndFeed.
+     * Parse an RSS feed from an RssSource, supporting ETag/If-Modified-Since.
      */
-    public SyndFeed parseFeed(String url) throws Exception {
-        URL feedUrl = new URL(url);
-        java.net.URLConnection conn = feedUrl.openConnection();
+    public FetchResult parseFeed(RssSource source) throws Exception {
+        URL feedUrl = new URL(source.url);
+        HttpURLConnection conn = (HttpURLConnection) feedUrl.openConnection();
         conn.setConnectTimeout(15_000);
         conn.setReadTimeout(30_000);
+
+        // 发送缓存的 ETag/Last-Modified
+        if (source.etag != null && !source.etag.isBlank())
+            conn.setRequestProperty("If-None-Match", source.etag);
+        if (source.lastModified != null && !source.lastModified.isBlank())
+            conn.setRequestProperty("If-Modified-Since", source.lastModified);
+
+        int status = conn.getResponseCode();
+        if (status == HttpURLConnection.HTTP_NOT_MODIFIED) {
+            return new FetchResult(null, source.etag, source.lastModified);
+        }
+
+        String newEtag = conn.getHeaderField("ETag");
+        String newLastModified = conn.getHeaderField("Last-Modified");
+
         SyndFeedInput input = new SyndFeedInput();
-        return input.build(new XmlReader(conn.getInputStream()));
+        SyndFeed feed = input.build(new XmlReader(conn.getInputStream()));
+        return new FetchResult(feed, newEtag, newLastModified);
     }
 
     /**
@@ -58,7 +78,7 @@ public class RssFetchService {
 
         // Summary — prefer description
         SyndContent description = entry.getDescription();
-        if (description != null && description.getValue() != null) {
+        if (description != null && description.getValue() != null && !description.getValue().isBlank()) {
             news.summary = description.getValue();
         }
 
@@ -67,7 +87,7 @@ public class RssFetchService {
         List<SyndContent> contents = entry.getContents();
         if (contents != null && !contents.isEmpty()) {
             rawContent = contents.get(0).getValue();
-        } else if (description != null && description.getValue() != null) {
+        } else if (description != null && description.getValue() != null && !description.getValue().isBlank()) {
             rawContent = description.getValue();
         }
         news.rawContent = rawContent;
@@ -77,11 +97,13 @@ public class RssFetchService {
         String author = entry.getAuthor();
         news.author = (author != null && !author.isBlank()) ? author : "未知";
 
-        // Published date — normalize to UTC+8
+        // Published date — normalize to UTC+8, fallback to now
         if (entry.getPublishedDate() != null) {
             news.publishedAt = entry.getPublishedDate().toInstant()
                 .atZone(ZoneId.of("Asia/Shanghai"))
                 .toLocalDateTime();
+        } else {
+            news.publishedAt = LocalDateTime.now();
         }
 
         // Category
