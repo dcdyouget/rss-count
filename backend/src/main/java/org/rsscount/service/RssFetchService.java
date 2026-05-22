@@ -35,6 +35,7 @@ public class RssFetchService {
      * Parse an RSS feed from an RssSource, supporting ETag/If-Modified-Since.
      */
     public FetchResult parseFeed(RssSource source) throws Exception {
+        Log.infof("Fetching RSS: %s", source.url);
         URL feedUrl = new URL(source.url);
         HttpURLConnection conn = (HttpURLConnection) feedUrl.openConnection();
         conn.setConnectTimeout(15_000);
@@ -48,6 +49,7 @@ public class RssFetchService {
 
         int status = conn.getResponseCode();
         if (status == HttpURLConnection.HTTP_NOT_MODIFIED) {
+            Log.infof("RSS not modified (304): %s", source.url);
             return new FetchResult(null, source.etag, source.lastModified);
         }
 
@@ -56,6 +58,7 @@ public class RssFetchService {
 
         SyndFeedInput input = new SyndFeedInput();
         SyndFeed feed = input.build(new XmlReader(conn.getInputStream()));
+        Log.infof("RSS fetched: %s — %d entries", source.url, feed.getEntries().size());
         return new FetchResult(feed, newEtag, newLastModified);
     }
 

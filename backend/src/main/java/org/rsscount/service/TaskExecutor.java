@@ -288,6 +288,7 @@ public class TaskExecutor {
                             // Submit to format pool: format → persist in background thread
                             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                                 try {
+                                    Log.debugf("Submitting format: %s", news.title);
                                     // Persist raw news first, then format
                                     persistAndFormat(news, report);
                                     formattedCount.incrementAndGet();

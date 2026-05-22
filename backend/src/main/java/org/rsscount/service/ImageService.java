@@ -2,8 +2,7 @@ package org.rsscount.service;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import io.quarkus.logging.Log;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -21,8 +20,6 @@ import java.util.UUID;
  */
 @ApplicationScoped
 public class ImageService {
-
-    private static final Logger log = LoggerFactory.getLogger(ImageService.class);
 
     private static final int MAX_SIZE = 10 * 1024 * 1024; // 10 MB
     private static final int TIMEOUT_MS = 10_000;
@@ -53,8 +50,10 @@ public class ImageService {
             String filename = UUID.randomUUID().toString();
             Path storageDir = Path.of(storagePath);
             Files.createDirectories(storageDir);
+            Log.debugf("Image cache hit: %s", originalUrl);
 
             // Download bytes with streaming size check
+            Log.infof("Downloading image: %s", originalUrl);
             byte[] bytes = downloadBytes(originalUrl);
 
             // Determine extension from actual content (magic bytes) or URL
@@ -64,10 +63,10 @@ public class ImageService {
             Files.write(targetFile, bytes);
 
             String localPath = "/static/images/" + fullName;
-            log.debug("Downloaded image: {} -> {}", originalUrl, localPath);
+            Log.infof("Image saved: %s -> %s (%d bytes)", originalUrl, localPath, bytes.length);
             return localPath;
         } catch (Exception e) {
-            log.warn("Failed to download image: {} ({})", originalUrl, e.getMessage());
+            Log.warnf("Failed to download image: %s (%s)", originalUrl, e.getMessage());
             return originalUrl;
         }
     }

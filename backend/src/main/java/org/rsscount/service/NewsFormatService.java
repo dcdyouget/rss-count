@@ -3,10 +3,13 @@ package org.rsscount.service;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import io.quarkus.logging.Log;
 import org.rsscount.entity.*;
 import org.rsscount.util.SimHash;
 import org.rsscount.util.TextCleaner;
 import org.rsscount.util.TimeNormalizer;
+
+import org.jsoup.Jsoup;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -33,6 +36,9 @@ public class NewsFormatService {
     ContentExtractor contentExtractor;
 
     @Inject
+    ImageService imageService;
+
+    @Inject
     AiService aiService;
 
     /**
@@ -46,6 +52,8 @@ public class NewsFormatService {
         if (raw == null) {
             return null;
         }
+
+        Log.debugf("Formatting news: %s", raw.title);
 
         // 0. Persist raw news first (caller provides a transient entity)
         if (!raw.isPersistent()) {
@@ -62,13 +70,15 @@ public class NewsFormatService {
         if (rawContent != null && !rawContent.isBlank()) {
             String cleaned = contentExtractor.clean(rawContent, raw.sourceUrl);
             raw.structuredContent = cleaned;
+            Log.debugf("HTML cleaned for: %s (%d chars)", raw.title, cleaned != null ? cleaned.length() : 0);
         }
 
         // 3. Extract header image
         if (raw.headerImageUrl == null && rawContent != null && !rawContent.isBlank()) {
             String headerImage = contentExtractor.extractHeaderImage(rawContent);
             if (headerImage != null) {
-                raw.headerImageUrl = headerImage;
+                raw.headerImageUrl = imageService.saveImg(headerImage);
+                Log.debugf("Header image saved locally: %s", raw.headerImageUrl);
             }
         }
 
@@ -77,18 +87,25 @@ public class NewsFormatService {
             // Try to parse from raw title or other fields — already handled at fetch stage
         }
 
+        // Extract plain text from cleaned HTML for AI input
+        String plainText = null;
+        if (raw.structuredContent != null && !raw.structuredContent.isBlank()) {
+            plainText = Jsoup.parse(raw.structuredContent).text();
+        }
+
         // 5. Generate AI summary if no summary exists
-        if ((raw.summary == null || raw.summary.isBlank()) && rawContent != null && !rawContent.isBlank()) {
-            String contentForSummary = rawContent.length() > 1000 ? rawContent.substring(0, 1000) : rawContent;
+        if ((raw.summary == null || raw.summary.isBlank()) && plainText != null && !plainText.isBlank()) {
+            String contentForSummary = plainText.length() > 1000 ? plainText.substring(0, 1000) : plainText;
             String aiSummary = aiService.generateSummary(contentForSummary, 200);
             if (aiSummary != null && !aiSummary.isBlank()) {
                 raw.summary = aiSummary;
+                Log.infof("AI summary generated for: %s", raw.title);
             }
         }
 
-        // 6. Extract tags via AI
-        String contentForTags = rawContent != null && !rawContent.isBlank()
-            ? (rawContent.length() > 2000 ? rawContent.substring(0, 2000) : rawContent)
+        // 6. Extract tags via AI (use plainText if available, fallback to title)
+        String contentForTags = (plainText != null && !plainText.isBlank())
+            ? (plainText.length() > 2000 ? plainText.substring(0, 2000) : plainText)
             : raw.title;
         List<String> tags = aiService.extractTags(contentForTags);
         if (tags != null && !tags.isEmpty()) {
@@ -108,6 +125,8 @@ public class NewsFormatService {
 
         // 8. Persist
         raw.persist();
+
+        Log.debugf("Format complete: %s", raw.title);
 
         return raw;
     }
@@ -139,9 +158,8 @@ public class NewsFormatService {
                 }
             } catch (Exception e) {
                 // Skip individual news formatting failures
-                java.util.logging.Logger.getLogger(NewsFormatService.class.getName())
-                    .warning("Format failed for news: " + (raw.title != null ? raw.title : "unknown")
-                        + " — " + e.getMessage());
+                Log.warnf("Format failed for news: %s — %s",
+                    raw.title != null ? raw.title : "unknown", e.getMessage());
             }
         }
 

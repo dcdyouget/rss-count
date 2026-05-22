@@ -16,7 +16,9 @@ public class SpaRouteConfig {
     void init(@Observes Router router) {
         // Serve locally downloaded images
         router.route("/static/images/*").order(2)
-                .handler(StaticHandler.create(imageStoragePath)
+                .handler(StaticHandler.create()
+                        .setAllowRootFileSystemAccess(true)
+                        .setWebRoot(imageStoragePath)
                         .setCachingEnabled(true)
                         .setCacheEntryTimeout(86400000));
 

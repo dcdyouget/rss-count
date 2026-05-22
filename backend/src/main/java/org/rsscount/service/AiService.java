@@ -139,6 +139,9 @@ public class AiService {
                     return "";
                 }
 
+                Log.infof("AI: Requesting summary (model=%s, maxLen=%d, inputLen=%d)",
+                    settings.aiModel, maxLength, content.length());
+
                 String systemPrompt = "你是一个专业的内容摘要生成助手。请根据以下文章内容，生成"
                     + maxLength + "字以内的中文摘要。只返回摘要文本，不要包含任何前缀或解释。";
                 String userContent = content.length() > 2000 ? content.substring(0, 2000) : content;
@@ -155,6 +158,7 @@ public class AiService {
                 try (OpenAiRestClient client = buildClient(settings)) {
                     ChatResponse response = client.chat(request);
                     String result = response.getContent();
+                    Log.infof("AI: Summary response received (%d chars)", result != null ? result.length() : 0);
                     if (result != null && result.length() > maxLength) {
                         result = result.substring(0, maxLength);
                     }
@@ -175,6 +179,9 @@ public class AiService {
                     Log.warn("AI settings not configured, returning empty tags");
                     return Collections.emptyList();
                 }
+
+                Log.infof("AI: Requesting tags (model=%s, inputLen=%d)",
+                    settings.aiModel, content.length());
 
                 String systemPrompt = """
                     你是一个专业的内容标签提取助手。请根据以下文章内容，提取2-5个关键标签。
@@ -199,6 +206,8 @@ public class AiService {
                 try (OpenAiRestClient client = buildClient(settings)) {
                     ChatResponse response = client.chat(request);
                     String rawTags = response.getContent();
+
+                    Log.infof("AI: Tags raw response (%d chars)", rawTags != null ? rawTags.length() : 0);
 
                     if (rawTags == null || rawTags.isBlank()) {
                         return Collections.emptyList();
@@ -232,6 +241,7 @@ public class AiService {
                         }
                     }
 
+                    Log.infof("AI: Tags matched: %s", String.join(", ", matchedTags));
                     return matchedTags;
                 }
             } catch (Exception e) {
