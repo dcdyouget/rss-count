@@ -1,6 +1,7 @@
 package org.rsscount.service;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -14,6 +15,9 @@ import org.jsoup.select.Elements;
  */
 @ApplicationScoped
 public class ContentExtractor {
+
+    @Inject
+    ImageService imageService;
 
     private static final String[] NOISE_SELECTORS = {
         "script", "style", "iframe", "noscript", "form", "button",
@@ -55,7 +59,18 @@ public class ContentExtractor {
             .preserveRelativeLinks(false);
 
         String bodyHtml = doc.body() != null ? doc.body().html() : "";
-        return Jsoup.clean(bodyHtml, baseUri != null ? baseUri : "", safelist);
+        String safeHtml = Jsoup.clean(bodyHtml, baseUri != null ? baseUri : "", safelist);
+
+        // Download remote images to local storage
+        Document cleanDoc = Jsoup.parse(safeHtml);
+        Elements imgs = cleanDoc.select("img[src]");
+        for (Element img : imgs) {
+            String src = img.attr("src");
+            if (src != null && (src.startsWith("http://") || src.startsWith("https://"))) {
+                img.attr("src", imageService.saveImg(src));
+            }
+        }
+        return cleanDoc.body().html();
     }
 
     /**
