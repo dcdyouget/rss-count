@@ -26,7 +26,7 @@ function buildNews(overrides: Partial<NewsSummary> = {}): NewsSummary {
     id: 1,
     title: '测试新闻标题',
     summary: '这是测试新闻的概要内容，用于验证卡片渲染。',
-    headerImageUrl: 'https://example.com/image.jpg',
+    headerImageHtml: '<img src="https://example.com/image.jpg" alt="测试新闻标题" />',
     sourceRssName: 'TestSource',
     publishedAt: '2024-01-15T10:30:00Z',
     ...overrides,
@@ -52,20 +52,21 @@ describe('NewsCard', () => {
     expect(screen.getByText(/2024/)).toBeInTheDocument();
   });
 
-  // T5-2: 有 headerImageUrl 时显示头图
-  it('T5-2: should render header image when headerImageUrl is provided', () => {
-    const news = buildNews({ headerImageUrl: 'https://example.com/header.jpg' });
-    render(<NewsCard news={news} />);
+  // T5-2: 有 headerImageHtml 时渲染 img 标签
+  it('T5-2: should render header image when headerImageHtml is provided', () => {
+    const html = '<img src="https://example.com/header.jpg" alt="测试新闻标题" />';
+    const news = buildNews({ headerImageHtml: html });
+    const { container } = render(<NewsCard news={news} />);
 
-    const img = screen.getByRole('img');
+    const img = container.querySelector('img');
     expect(img).toBeInTheDocument();
     expect(img).toHaveAttribute('src', 'https://example.com/header.jpg');
     expect(img).toHaveAttribute('alt', '测试新闻标题');
   });
 
-  // T5-3: 无 headerImageUrl 时显示占位灰色方块
-  it('T5-3: should render placeholder when headerImageUrl is null', () => {
-    const news = buildNews({ headerImageUrl: null });
+  // T5-3: 无 headerImageHtml 时显示占位灰色方块
+  it('T5-3: should render placeholder when headerImageHtml is null', () => {
+    const news = buildNews({ headerImageHtml: null });
     render(<NewsCard news={news} />);
 
     // 不应该有 img 元素

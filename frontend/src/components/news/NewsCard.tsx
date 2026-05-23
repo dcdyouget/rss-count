@@ -55,18 +55,17 @@ export default function NewsCard({ news, onClick }: NewsCardProps) {
       }}
     >
       {/* 头图 / 占位 */}
-      {news.headerImageUrl ? (
-        <img
-          src={news.headerImageUrl}
-          alt={news.title}
+      {news.headerImageHtml ? (
+        <div
+          aria-label={news.title}
           style={{
             width: HEADER_IMAGE_WIDTH,
             height: HEADER_IMAGE_HEIGHT,
-            objectFit: 'cover',
             borderRadius: token.borderRadius,
             marginBottom: token.marginMD,
-            display: 'block',
+            overflow: 'hidden',
           }}
+          dangerouslySetInnerHTML={{ __html: news.headerImageHtml }}
         />
       ) : (
         <div

@@ -128,7 +128,7 @@ export interface NewsSummary {
   id: number;
   title: string;
   summary: string;
-  headerImageUrl: string | null;
+  headerImageHtml: string | null;
   sourceRssName: string;
   publishedAt: string;
 }

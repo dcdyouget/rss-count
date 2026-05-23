@@ -106,7 +106,7 @@ class NewsFormatServiceTest {
         assertNotNull(result.structuredContent);
 
         // Header image
-        assertEquals("https://example.com/pic.jpg", result.headerImageUrl);
+        assertEquals("https://example.com/pic.jpg", result.headerImageHtml);
 
         // Summary generated
         assertEquals("这是一条测试摘要。", result.summary);
@@ -137,7 +137,7 @@ class NewsFormatServiceTest {
         assertNotNull(result);
         assertEquals("无内容新闻", result.title);
         assertNull(result.structuredContent);
-        assertNull(result.headerImageUrl);
+        assertNull(result.headerImageHtml);
     }
 
     @Test

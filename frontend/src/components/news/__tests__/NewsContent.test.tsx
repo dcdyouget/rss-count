@@ -16,7 +16,7 @@ const mockNews: NewsDetail = {
   isRead: false,
   inMaterialPile: false,
   summary: '近日，多家科技公司发布了新的AI产品...',
-  headerImageUrl: null,
+  headerImageHtml: null,
   structuredContent: '<h2>行业动态</h2><p>近日多家科技公司发布了新的AI产品，引起业界广泛关注。</p><p>这些产品展示了AI技术在各行各业的应用潜力。</p>',
 };
 

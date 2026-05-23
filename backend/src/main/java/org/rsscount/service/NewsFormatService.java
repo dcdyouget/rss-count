@@ -36,9 +36,6 @@ public class NewsFormatService {
     ContentExtractor contentExtractor;
 
     @Inject
-    ImageService imageService;
-
-    @Inject
     AiService aiService;
 
     /**
@@ -73,12 +70,12 @@ public class NewsFormatService {
             Log.debugf("HTML cleaned for: %s (%d chars)", raw.title, cleaned != null ? cleaned.length() : 0);
         }
 
-        // 3. Extract header image
-        if (raw.headerImageUrl == null && rawContent != null && !rawContent.isBlank()) {
+        // 3. Extract header image (preserve full HTML tag, keep remote URL)
+        if (raw.headerImageHtml == null && rawContent != null && !rawContent.isBlank()) {
             String headerImage = contentExtractor.extractHeaderImage(rawContent);
             if (headerImage != null) {
-                raw.headerImageUrl = imageService.saveImg(headerImage);
-                Log.debugf("Header image saved locally: %s", raw.headerImageUrl);
+                raw.headerImageHtml = headerImage;
+                Log.debugf("Header image extracted: %s", raw.headerImageHtml);
             }
         }
 

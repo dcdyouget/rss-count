@@ -49,8 +49,8 @@ public class News extends PanacheEntityBase {
     @Column(name = "source_url", length = 2048)
     public String sourceUrl;
 
-    @Column(name = "header_image_url", length = 2048)
-    public String headerImageUrl;
+    @Column(name = "header_image_html", length = 4096)
+    public String headerImageHtml;
 
     @Column(name = "category", length = 50)
     public String category;

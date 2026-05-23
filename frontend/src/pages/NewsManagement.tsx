@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import {
-  Table, Input, Select, Button, Image, theme,
+  Table, Input, Select, Button, theme,
   message, Space, Flex, Skeleton,
 } from 'antd';
 import {
@@ -96,20 +96,22 @@ export default function NewsManagement() {
   const columns = [
     {
       title: '头图',
-      dataIndex: 'headerImageUrl',
+      dataIndex: 'headerImageHtml',
       key: 'headerImage',
       width: 60,
-      render: (url: string | null) =>
-        url ? (
-          <Image
-            src={url}
-            width={40}
-            height={40}
+      render: (html: string | null) =>
+        html ? (
+          <div
             style={{
-              objectFit: 'cover',
+              width: 40,
+              height: 40,
               borderRadius: token.borderRadiusSM,
+              overflow: 'hidden',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
-            preview={false}
+            dangerouslySetInnerHTML={{ __html: html }}
           />
         ) : (
           <div

@@ -69,17 +69,21 @@ public class TaskScheduler {
                 return;
             }
 
-            // Determine time range from last completed task
+            // Determine time range: use last completed task's endedAt if it's
+            // more than 1 hour ago (to pick up where we left off), otherwise
+            // default to last 24 hours.
+            LocalDateTime now = LocalDateTime.now();
             Task lastCompleted = QuarkusTransaction.call(() ->
                 Task.find("status = ?1 order by endedAt desc", Task.STATUS_COMPLETED).firstResult());
 
             LocalDateTime timeRangeStart;
-            if (lastCompleted != null && lastCompleted.endedAt != null) {
+            if (lastCompleted != null && lastCompleted.endedAt != null
+                && lastCompleted.endedAt.isBefore(now.minusHours(1))) {
                 timeRangeStart = lastCompleted.endedAt;
             } else {
-                timeRangeStart = LocalDateTime.now().minusHours(24);
+                timeRangeStart = now.minusHours(24);
             }
-            LocalDateTime timeRangeEnd = LocalDateTime.now();
+            LocalDateTime timeRangeEnd = now;
 
             // Determine source type
             String sourceType = Task.SOURCE_ALL;

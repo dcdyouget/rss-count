@@ -51,7 +51,7 @@ public class ReportController {
         Long id,
         String title,
         String summary,
-        String headerImageUrl,
+        String headerImageHtml,
         String sourceRssName,
         LocalDateTime publishedAt
     ) {}
@@ -107,7 +107,7 @@ public class ReportController {
 
         List<NewsBrief> newsBriefs = newsList.stream()
             .map(n -> new NewsBrief(
-                n.id, n.title, n.summary, n.headerImageUrl,
+                n.id, n.title, n.summary, n.headerImageHtml,
                 n.sourceRssName, n.publishedAt))
             .collect(Collectors.toList());
 
