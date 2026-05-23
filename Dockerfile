@@ -6,4 +6,4 @@ WORKDIR /app
 COPY backend/target/quarkus-app/ ./
 RUN mkdir -p /app/data/img
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "quarkus-run.jar"]
+ENTRYPOINT ["java", "-Duser.timezone=Asia/Shanghai", "-jar", "quarkus-run.jar"]

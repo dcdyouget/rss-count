@@ -13,6 +13,7 @@ import SourceSelector from '@/components/task/SourceSelector';
 import { useDashboardStats, useRecentTasks, useRecentReports } from '@/api/dashboard';
 import { useSuggestTaskName, useLastEndTime, useCreateTask } from '@/api/tasks';
 import { useRssGroups, useRssSourceList } from '@/api/rssSources';
+import { formatDateTime } from '@/utils/format';
 import type { SourceType, SourceConfig } from '@/types';
 
 const { Text } = Typography;
@@ -43,11 +44,6 @@ export default function Dashboard() {
       form.setFieldsValue({ name: suggestName });
     }
   }, [drawerOpen, suggestName, form]);
-
-  const formatDT = (t: string) => {
-    const d = new Date(t);
-    return `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  };
 
   const handleCreateTask = async () => {
     try {
@@ -212,10 +208,10 @@ export default function Dashboard() {
                       }
                       description={
                         <Text type="secondary" style={{ fontSize: token.fontSizeSM }}>
-                          {formatDT(task.timeRangeStart)} ~ {formatDT(task.timeRangeEnd)}
+                          {formatDateTime(task.timeRangeStart)} ~ {formatDateTime(task.timeRangeEnd)}
                           <br />
-                          开始: {formatDT(task.startedAt)}
-                          {task.endedAt && ` | 结束: ${formatDT(task.endedAt)}`}
+                          开始: {formatDateTime(task.startedAt)}
+                          {task.endedAt && ` | 结束: ${formatDateTime(task.endedAt)}`}
                         </Text>
                       }
                     />
@@ -262,7 +258,7 @@ export default function Dashboard() {
                       title={<Text strong>{report.name}</Text>}
                       description={
                         <Text type="secondary" style={{ fontSize: token.fontSizeSM }}>
-                          {report.newsCount} 条新闻 | {formatDT(report.createdAt)}
+                          {report.newsCount} 条新闻 | {formatDateTime(report.createdAt)}
                         </Text>
                       }
                     />
@@ -319,7 +315,7 @@ export default function Dashboard() {
               <Tooltip
                 title={
                   lastEndTime?.endedAt
-                    ? `截止 ${formatDT(lastEndTime.endedAt)}`
+                    ? `截止 ${formatDateTime(lastEndTime.endedAt)}`
                     : '暂无历史任务'
                 }
               >
