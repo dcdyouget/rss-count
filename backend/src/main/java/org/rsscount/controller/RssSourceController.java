@@ -93,10 +93,10 @@ public class RssSourceController {
     @GET
     @Path("/export-opml")
     @Produces("application/xml")
-    public Response exportOpml() {
+    public Response exportOpml(@QueryParam("groupIds") List<Long> groupIds) {
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            service.exportOpml(baos);
+            service.exportOpml(baos, groupIds);
             return Response.ok(baos.toByteArray())
                 .header("Content-Disposition", "attachment; filename=\"rss-sources.opml\"")
                 .build();

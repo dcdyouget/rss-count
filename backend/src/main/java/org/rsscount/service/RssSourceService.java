@@ -249,9 +249,14 @@ public class RssSourceService {
         return result;
     }
 
-    public void exportOpml(OutputStream outputStream) {
+    public void exportOpml(OutputStream outputStream, List<Long> groupIds) {
         try {
-            List<RssGroup> groups = RssGroup.listAll();
+            List<RssGroup> groups;
+            if (groupIds != null && !groupIds.isEmpty()) {
+                groups = RssGroup.list("id in ?1", groupIds);
+            } else {
+                groups = RssGroup.listAll();
+            }
             List<OpmlWriter.GroupEntry> entries = new ArrayList<>();
 
             // Sources without groups go to "未分组"
@@ -273,6 +278,27 @@ public class RssSourceService {
                         .map(s -> new OpmlWriter.SourceEntry(s.name, s.url))
                         .collect(Collectors.toList());
                     entries.add(new OpmlWriter.GroupEntry(group.name, sourceEntries));
+                }
+            }
+
+            // Only include ungrouped sources when exporting all groups (no filter)
+            if (groupIds == null || groupIds.isEmpty()) {
+                List<Long> groupedSourceIds = RssSourceGroup.findAll()
+                    .stream()
+                    .map(sg -> ((RssSourceGroup) sg).rssSourceId)
+                    .distinct()
+                    .toList();
+                List<RssSource> ungrouped;
+                if (groupedSourceIds.isEmpty()) {
+                    ungrouped = RssSource.list("isActive", true);
+                } else {
+                    ungrouped = RssSource.list("isActive = true and id not in ?1", groupedSourceIds);
+                }
+                if (!ungrouped.isEmpty()) {
+                    List<OpmlWriter.SourceEntry> srcEntries = ungrouped.stream()
+                        .map(s -> new OpmlWriter.SourceEntry(s.name, s.url))
+                        .collect(Collectors.toList());
+                    entries.add(new OpmlWriter.GroupEntry("未分组", srcEntries));
                 }
             }
 
@@ -424,18 +450,22 @@ public class RssSourceService {
                 && "outline".equals(child.getNodeName())) {
                 org.w3c.dom.Element el = (org.w3c.dom.Element) child;
                 String text = el.getAttribute("text");
+                String title = el.getAttribute("title");
                 String xmlUrl = el.getAttribute("xmlUrl");
+
+                // Prefer title over text; only use text when it is non-blank and differs from title
+                String name = (text != null && !text.isBlank() && !text.equals(title)) ? text : title;
 
                 if (xmlUrl != null && !xmlUrl.isBlank()) {
                     // Source outline
                     result.add(new OpmlParser.Outline(
-                        text != null ? text : xmlUrl, xmlUrl, null));
+                        name != null ? name : xmlUrl, xmlUrl, null));
                 } else {
                     // Group outline (may have children)
                     List<OpmlParser.Outline> childOutlines = new ArrayList<>();
                     parseOutlines(child, childOutlines);
                     result.add(new OpmlParser.Outline(
-                        text != null ? text : "未命名分组", null, childOutlines));
+                        name != null ? name : "未命名分组", null, childOutlines));
                 }
             }
         }

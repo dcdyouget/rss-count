@@ -1,15 +1,17 @@
 import { useState, useMemo } from 'react';
 import {
   Table, Button, Modal, Form, Input, Select, Transfer, Upload, Popconfirm,
-  Typography, theme, message, Image, Avatar, Tabs, Space, Flex,
+  Typography, theme, message, Image, Avatar, Tabs, Space, Flex, Checkbox,
 } from 'antd';
 import {
   PlusOutlined, UploadOutlined, DownloadOutlined, SettingOutlined,
+  CloseOutlined,
 } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
 import {
   useRssSourceList, useCreateRssSource, useDeleteRssSource,
   useImportOpml, useExportOpml, useRssGroups, useCreateRssGroup,
+  useDeleteRssGroup,
   useRssSourceSearch, useAddSourcesToGroup,
 } from '@/api/rssSources';
 import type { RssSource, RssGroup } from '@/types';
@@ -27,6 +29,7 @@ export default function RssSourceManagement() {
   const importOpml = useImportOpml();
   const exportOpml = useExportOpml();
   const createGroup = useCreateRssGroup();
+  const deleteGroup = useDeleteRssGroup();
 
   // Search
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -60,6 +63,10 @@ export default function RssSourceManagement() {
   // Add group modal
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [groupForm] = Form.useForm();
+
+  // Export modal
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportGroupIds, setExportGroupIds] = useState<number[]>([]);
 
   // Import result modal
   const [resultModalOpen, setResultModalOpen] = useState(false);
@@ -95,6 +102,14 @@ export default function RssSourceManagement() {
   const handleDeleteSource = async (id: number) => {
     await deleteSource.mutateAsync(id);
     message.success('已删除');
+  };
+
+  const handleDeleteGroup = async (group: RssGroup) => {
+    await deleteGroup.mutateAsync(group.id);
+    message.success(`分组 "${group.name}" 已删除`);
+    if (activeGroupId === group.id) {
+      setActiveGroupId(undefined);
+    }
   };
 
   const handleAddGroup = async () => {
@@ -234,7 +249,10 @@ export default function RssSourceManagement() {
           </Upload>
           <Button
             icon={<DownloadOutlined />}
-            onClick={() => exportOpml.mutate()}
+            onClick={() => {
+              setExportGroupIds([]);
+              setExportModalOpen(true);
+            }}
             loading={exportOpml.isPending}
           >
             导出 OPML
@@ -267,6 +285,22 @@ export default function RssSourceManagement() {
             label: (
               <span>
                 {g.name} ({g.sourceCount})
+                <Popconfirm
+                  title="确定删除分组？"
+                  description={`删除分组 "${g.name}" 不会删除其中的源`}
+                  onConfirm={() => handleDeleteGroup(g)}
+                  okText="确定"
+                  cancelText="取消"
+                >
+                  <Button
+                    type="text"
+                    size="small"
+                    danger
+                    icon={<CloseOutlined />}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ marginLeft: 2 }}
+                  />
+                </Popconfirm>
                 <Button
                   type="text"
                   size="small"
@@ -391,6 +425,42 @@ export default function RssSourceManagement() {
             )}
           </div>
         )}
+      </Modal>
+
+      {/* Export modal */}
+      <Modal
+        title="选择导出分组"
+        open={exportModalOpen}
+        onCancel={() => setExportModalOpen(false)}
+        onOk={() => {
+          exportOpml.mutate(exportGroupIds.length > 0 ? exportGroupIds : undefined);
+          setExportModalOpen(false);
+        }}
+        okText="导出"
+        cancelText="取消"
+      >
+        <div style={{ marginBottom: 12 }}>
+          <Checkbox
+            checked={exportGroupIds.length === 0}
+            onChange={(e) => {
+              if (e.target.checked) setExportGroupIds([]);
+            }}
+          >
+            全部（不分组的也会包含）
+          </Checkbox>
+        </div>
+        <Checkbox.Group
+          value={exportGroupIds}
+          onChange={(values) => setExportGroupIds(values as number[])}
+        >
+          <Flex wrap="wrap" gap={8}>
+            {groups.map((g: RssGroup) => (
+              <Checkbox key={g.id} value={g.id}>
+                {g.name} ({g.sourceCount})
+              </Checkbox>
+            ))}
+          </Flex>
+        </Checkbox.Group>
       </Modal>
 
       {/* Manage sources modal */}

@@ -88,14 +88,16 @@ export function useImportOpml() {
 }
 
 /**
- * Export OPML file — returns the download URL.
- * Usage: set window.location.href or use an <a> tag with this URL.
+ * Export OPML file — optionally filter by group IDs.
  */
 export function useExportOpml() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      client.get('/rss-sources/export-opml', { responseType: 'blob' }).then((r) => {
+    mutationFn: (groupIds?: number[]) =>
+      client.get('/rss-sources/export-opml', {
+        responseType: 'blob',
+        params: groupIds && groupIds.length > 0 ? { groupIds: groupIds.join(',') } : {},
+      }).then((r) => {
         // Create a downloadable URL from the blob
         const url = window.URL.createObjectURL(new Blob([r.data]));
         const link = document.createElement('a');
@@ -149,6 +151,7 @@ export function useDeleteRssGroup() {
     mutationFn: (id: number) => client.delete(`/rss-groups/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rss-groups'] });
+      queryClient.invalidateQueries({ queryKey: ['rss-sources'] });
     },
   });
 }
