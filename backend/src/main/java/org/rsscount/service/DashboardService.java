@@ -13,17 +13,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * 仪表盘服务 — 提供首页统计概览和最近任务/报告数据。
+ * 统计维度包括：任务数、报告数、新闻数的今日/昨日对比和变化百分比。
+ */
 @ApplicationScoped
 public class DashboardService {
 
+    /** 统计数据项（今日值 + 昨日值 + 变化量 + 变化百分比） */
     public record StatItem(long today, long yesterday, long change, Double changePercent) {}
 
+    /** 仪表盘统计响应 */
     public record StatsResponse(
         StatItem taskCount,
         StatItem reportCount,
         StatItem newsCount
     ) {}
 
+    /** 最近任务项 */
     public record RecentTaskItem(
         Long id,
         String name,
@@ -35,6 +42,7 @@ public class DashboardService {
         Long reportId
     ) {}
 
+    /** 最近报告项 */
     public record RecentReportItem(
         Long id,
         String name,
@@ -42,6 +50,10 @@ public class DashboardService {
         LocalDateTime createdAt
     ) {}
 
+    /**
+     * 获取仪表盘统计数据（今日 vs 昨日）。
+     * @return 统计响应（任务数、报告数、新闻数各含变化趋势）
+     */
     public StatsResponse getStats() {
         LocalDate today = LocalDate.now();
         LocalDate yesterday = today.minusDays(1);
@@ -67,6 +79,10 @@ public class DashboardService {
         );
     }
 
+    /**
+     * 获取最近 5 条任务记录（按创建时间降序）。
+     * @return 最近任务列表（已完成的任务附有报告 ID）
+     */
     public List<RecentTaskItem> getRecentTasks() {
         List<Task> tasks = Task.find("order by createdAt desc")
             .page(0, 5)
@@ -94,6 +110,10 @@ public class DashboardService {
         }).collect(Collectors.toList());
     }
 
+    /**
+     * 获取最近 3 条报告记录（按创建时间降序）。
+     * @return 最近报告列表
+     */
     public List<RecentReportItem> getRecentReports() {
         List<Report> reports = Report.find("order by createdAt desc")
             .page(0, 3)
@@ -109,6 +129,7 @@ public class DashboardService {
         ).collect(Collectors.toList());
     }
 
+    /** 构建统计数据项：计算变化量和百分比（保留一位小数） */
     private StatItem buildStatItem(long today, long yesterday) {
         long change = today - yesterday;
         Double changePercent = null;

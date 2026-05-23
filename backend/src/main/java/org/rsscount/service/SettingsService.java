@@ -9,18 +9,24 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 系统设置服务 — 管理任务间隔、AI API 配置和默认分组。
+ * AI API Key 在响应中自动脱敏（显示首 3 位和末 3 位）。
+ */
 @ApplicationScoped
 public class SettingsService {
 
+    /** 系统设置响应（API Key 已脱敏） */
     public record SettingsResponse(
         int taskIntervalHours,
         String aiApiUrl,
-        String aiApiKey,        // masked
+        String aiApiKey,        // 已脱敏
         String aiModel,
         Long defaultGroupId,
         LocalDateTime updatedAt
     ) {}
 
+    /** 更新系统设置请求 */
     public record UpdateSettingsRequest(
         int taskIntervalHours,
         String aiApiUrl,
@@ -29,12 +35,23 @@ public class SettingsService {
         Long defaultGroupId
     ) {}
 
+    /**
+     * 获取当前系统设置，不存在时使用默认值创建。
+     * @return 系统设置响应（API Key 已脱敏）
+     */
     @Transactional
     public SettingsResponse get() {
         Settings settings = Settings.getOrCreate();
         return toResponse(settings);
     }
 
+    /**
+     * 更新系统设置。
+     * 注意：如果 aiApiKey 为 "******" 或空字符串，则保留原值（不覆盖）。
+     * @param request 更新请求
+     * @return 更新后的设置响应
+     * @throws IllegalArgumentException 校验失败时抛出
+     */
     @Transactional
     public SettingsResponse update(UpdateSettingsRequest request) {
         // Validate
@@ -74,6 +91,7 @@ public class SettingsService {
         return toResponse(settings);
     }
 
+    /** 将 Settings 实体转换为响应 DTO，API Key 自动脱敏 */
     private SettingsResponse toResponse(Settings settings) {
         return new SettingsResponse(
             settings.taskIntervalHours,

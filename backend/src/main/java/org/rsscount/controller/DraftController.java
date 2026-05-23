@@ -8,6 +8,11 @@ import org.rsscount.service.DraftService;
 
 import java.util.Map;
 
+/**
+ * 稿件管理 REST 接口。
+ * 路由前缀: /api/v1/drafts
+ * 负责稿件的增删改查以及 AI 生成稿件功能。
+ */
 @Path("/api/v1/drafts")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
@@ -18,6 +23,12 @@ public class DraftController {
 
     // ── 18. GET /drafts — List with pagination ─────────────
 
+    /**
+     * 分页查询稿件列表。
+     * @param page 页码（1-based）
+     * @param size 每页条数，默认20
+     * @return 分页的稿件列表
+     */
     @GET
     public DraftService.PaginatedResponse<DraftService.DraftListSummary> list(
         @QueryParam("page") @DefaultValue("1") int page,
@@ -28,6 +39,12 @@ public class DraftController {
 
     // ── 19. GET /drafts/{id} — Detail ──────────────────────
 
+    /**
+     * 获取指定稿件的详细信息。
+     * @param id 稿件ID
+     * @return 稿件详情
+     * @throws NotFoundException 稿件不存在时抛出
+     */
     @GET
     @Path("/{id}")
     public DraftService.DraftResponse getDetail(@PathParam("id") Long id) {
@@ -36,6 +53,11 @@ public class DraftController {
 
     // ── 17. POST /drafts — Create ─────────────────────────
 
+    /**
+     * 创建新稿件。
+     * @param request 创建稿件的请求体
+     * @return 201 Created，包含创建的稿件信息
+     */
     @POST
     public Response create(DraftService.CreateDraftRequest request) {
         try {
@@ -49,6 +71,13 @@ public class DraftController {
 
     // ── 20. PUT /drafts/{id} — Update ──────────────────────
 
+    /**
+     * 更新指定稿件的内容。
+     * @param id 稿件ID
+     * @param request 更新请求体
+     * @return 更新后的稿件信息
+     * @throws NotFoundException 稿件不存在时抛出
+     */
     @PUT
     @Path("/{id}")
     public Response update(@PathParam("id") Long id, DraftService.UpdateDraftRequest request) {
@@ -65,6 +94,12 @@ public class DraftController {
 
     // ── 21. DELETE /drafts/{id} — Delete ───────────────────
 
+    /**
+     * 删除指定稿件。
+     * @param id 稿件ID
+     * @return 204 No Content
+     * @throws NotFoundException 稿件不存在时抛出
+     */
     @DELETE
     @Path("/{id}")
     public Response delete(@PathParam("id") Long id) {
@@ -78,6 +113,12 @@ public class DraftController {
 
     // ── 22. POST /drafts/{id}/generate — AI generation ────
 
+    /**
+     * 使用 AI 生成指定稿件的内容。基于稿件关联的新闻源自动生成文本。
+     * @param id 稿件ID
+     * @return 生成的稿件内容
+     * @throws NotFoundException 稿件不存在时抛出
+     */
     @POST
     @Path("/{id}/generate")
     public Response generate(@PathParam("id") Long id) {

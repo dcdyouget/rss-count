@@ -17,7 +17,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Service for managing drafts and AI-powered content generation.
+ * 稿件管理服务 — 管理 AI 辅助稿件生成的全流程。
+ * 支持创建/编辑稿件、关联新闻素材、AI 生成、版本管理和素材堆管理。
  */
 @ApplicationScoped
 public class DraftService {
@@ -86,17 +87,20 @@ public class DraftService {
         LocalDateTime updatedAt
     ) {}
 
+    /** 稿件版本信息 */
     public record DraftVersionInfo(
         int version,
         String content,
         LocalDateTime createdAt
     ) {}
 
+    /** AI 生成响应 */
     public record GenerateResponse(
         String content,
         int version
     ) {}
 
+    /** 素材堆中的新闻项 */
     public record MaterialPileItem(
         Long id,
         String title,
@@ -192,6 +196,12 @@ public class DraftService {
     // CRUD: Get by ID (with news)
     // ──────────────────────────────────────────────
 
+    /**
+     * 根据 ID 获取稿件详情（含关联的新闻素材列表）。
+     * @param id 稿件 ID
+     * @return 稿件响应
+     * @throws NotFoundException 稿件不存在时抛出
+     */
     public DraftResponse getById(Long id) {
         Draft draft = Draft.findById(id);
         if (draft == null) {
@@ -204,6 +214,12 @@ public class DraftService {
     // CRUD: List with pagination
     // ──────────────────────────────────────────────
 
+    /**
+     * 分页查询稿件列表（按更新时间降序）。
+     * @param page 页码，从 1 开始
+     * @param size 每页大小
+     * @return 分页的稿件摘要列表
+     */
     public PaginatedResponse<DraftListSummary> list(int page, int size) {
         PanacheQuery<Draft> query = Draft.findAll(Sort.by("updatedAt").descending());
         long total = query.count();
@@ -220,6 +236,13 @@ public class DraftService {
     // AI Generation
     // ──────────────────────────────────────────────
 
+    /**
+     * 调用 AI 生成稿件内容。
+     * 流程：加载关联新闻 → 拼接提示词 → 调用 AI → 保存版本 → 更新稿件最新内容。
+     * @param draftId 稿件 ID
+     * @return 生成的稿件内容和版本号
+     * @throws WebApplicationException AI 服务不可用或返回空内容时抛出（502）
+     */
     @Transactional
     public GenerateResponse generate(Long draftId) {
         Draft draft = Draft.findById(draftId);
@@ -286,6 +309,12 @@ public class DraftService {
     // Material Pile Management
     // ──────────────────────────────────────────────
 
+    /**
+     * 分页查询素材堆中的新闻列表。
+     * @param page 页码，从 1 开始
+     * @param size 每页大小
+     * @return 分页的素材堆项列表
+     */
     public PaginatedResponse<MaterialPileItem> getMaterialPile(int page, int size) {
         PanacheQuery<News> query = News.find(
             "inMaterialPile = true",
@@ -302,6 +331,11 @@ public class DraftService {
         return new PaginatedResponse<>(total, page, size, items);
     }
 
+    /**
+     * 将新闻添加到素材堆。
+     * @param newsId 新闻 ID
+     * @throws NotFoundException 新闻不存在时抛出
+     */
     @Transactional
     public void addToMaterialPile(Long newsId) {
         News news = News.findById(newsId);
@@ -315,6 +349,11 @@ public class DraftService {
         }
     }
 
+    /**
+     * 将新闻从素材堆移除。
+     * @param newsId 新闻 ID
+     * @throws NotFoundException 新闻不存在时抛出
+     */
     @Transactional
     public void removeFromMaterialPile(Long newsId) {
         News news = News.findById(newsId);
@@ -332,6 +371,12 @@ public class DraftService {
     // Draft Versions
     // ──────────────────────────────────────────────
 
+    /**
+     * 获取稿件的所有历史版本（按版本号降序）。
+     * @param draftId 稿件 ID
+     * @return 版本信息列表
+     * @throws NotFoundException 稿件不存在时抛出
+     */
     public List<DraftVersionInfo> getVersions(Long draftId) {
         Draft draft = Draft.findById(draftId);
         if (draft == null) {

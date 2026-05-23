@@ -3,9 +3,16 @@ package org.rsscount.entity;
 import java.io.Serializable;
 import java.util.Objects;
 
+/**
+ * NewsTag 联合主键类 — 包含 newsId 和 tagId。
+ * 实现 Serializable 和 equals/hashCode 用于 JPA 复合主键映射。
+ */
 public class NewsTagId implements Serializable {
 
+    /** 新闻 ID */
     public Long newsId;
+
+    /** 标签 ID */
     public Long tagId;
 
     public NewsTagId() {

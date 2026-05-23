@@ -16,6 +16,11 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
+/**
+ * 报告管理 REST 接口。
+ * 路由前缀: /api/v1/reports
+ * 负责报告的查询、详情查看以及报告内新闻的查阅。
+ */
 @Path("/api/v1/reports")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
@@ -26,8 +31,24 @@ public class ReportController {
 
     // ── DTOs ───────────────────────────────────────────────
 
+    /**
+     * 通用分页响应包装。
+     * @param total 总记录数
+     * @param page 当前页码
+     * @param size 每页条数
+     * @param items 当前页数据列表
+     */
     public record PagedResponse<T>(long total, int page, int size, List<T> items) {}
 
+    /**
+     * 报告列表项 DTO。
+     * @param id 报告ID
+     * @param name 报告名称
+     * @param timeRangeStart 报告时间范围（开始）
+     * @param timeRangeEnd 报告时间范围（结束）
+     * @param newsCount 报告中的新闻数量
+     * @param createdAt 报告创建时间
+     */
     public record ReportListItem(
         Long id,
         String name,
@@ -37,6 +58,16 @@ public class ReportController {
         LocalDateTime createdAt
     ) {}
 
+    /**
+     * 报告详情 DTO，包含新闻列表。
+     * @param id 报告ID
+     * @param name 报告名称
+     * @param timeRangeStart 报告时间范围（开始）
+     * @param timeRangeEnd 报告时间范围（结束）
+     * @param newsCount 新闻数量
+     * @param createdAt 报告创建时间
+     * @param news 新闻概要列表（按发布时间倒序）
+     */
     public record ReportDetail(
         Long id,
         String name,
@@ -47,6 +78,15 @@ public class ReportController {
         List<NewsBrief> news
     ) {}
 
+    /**
+     * 新闻概要 DTO。
+     * @param id 新闻ID
+     * @param title 新闻标题
+     * @param summary 新闻摘要
+     * @param headerImageHtml 头图 HTML
+     * @param sourceRssName 来源 RSS 名称
+     * @param publishedAt 发布时间
+     */
     public record NewsBrief(
         Long id,
         String title,
@@ -56,6 +96,19 @@ public class ReportController {
         LocalDateTime publishedAt
     ) {}
 
+    /**
+     * 新闻详情 DTO。
+     * @param id 新闻ID
+     * @param title 新闻标题
+     * @param author 作者
+     * @param sourceRssName 来源 RSS 名称
+     * @param sourceUrl 原文链接
+     * @param publishedAt 发布时间
+     * @param tags 标签列表
+     * @param isRead 是否已读
+     * @param inMaterialPile 是否在素材堆中
+     * @param structuredContent 结构化内容（HTML）
+     */
     public record NewsDetail(
         Long id,
         String title,
@@ -71,6 +124,12 @@ public class ReportController {
 
     // ── 10. GET /reports — List with pagination ────────────
 
+    /**
+     * 分页查询报告列表，按创建时间倒序排列。
+     * @param page 页码（1-based）
+     * @param size 每页条数，默认20
+     * @return 分页响应，包含报告列表
+     */
     @GET
     public PagedResponse<ReportListItem> list(
         @QueryParam("page") @DefaultValue("1") int page,
@@ -91,6 +150,12 @@ public class ReportController {
 
     // ── 11. GET /reports/{id} — Detail with news list ─────
 
+    /**
+     * 获取报告详情，包含报告内的全部新闻列表。
+     * @param id 报告ID
+     * @return 报告详情，含新闻概要列表
+     * @throws NotFoundException 报告不存在时抛出
+     */
     @GET
     @Path("/{id}")
     public ReportDetail getDetail(@PathParam("id") Long id) {
@@ -121,6 +186,13 @@ public class ReportController {
 
     // ── 12. GET /reports/{id}/news/{newsId} ────────────────
 
+    /**
+     * 获取指定报告内某条新闻的详细内容。
+     * @param reportId 报告ID
+     * @param newsId 新闻ID
+     * @return 新闻详情，含标签、阅读状态和结构化内容
+     * @throws NotFoundException 新闻不存在或不属于该报告时抛出
+     */
     @GET
     @Path("/{id}/news/{newsId}")
     public NewsDetail getNewsDetail(

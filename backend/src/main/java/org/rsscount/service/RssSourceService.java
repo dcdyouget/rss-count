@@ -26,13 +26,20 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * RSS 源管理服务 — 提供 RSS 源的 CRUD、搜索、导入/导出和 Favicon 下载功能。
+ * 支持按分组查询、OPML 格式导入导出。
+ */
 @ApplicationScoped
 public class RssSourceService {
 
+    /** Favicon 图标文件的本地存储目录 */
     public static final String ICONS_DIR = "src/main/resources/static/icons/";
 
+    /** 分页响应 */
     public record PagedResponse<T>(long total, int page, int size, List<T> items) {}
 
+    /** RSS 源响应 — 包含关联分组信息 */
     public record RssSourceResponse(
         Long id,
         String url,
@@ -46,12 +53,14 @@ public class RssSourceService {
         List<String> groupNames
     ) {}
 
+    /** 创建 RSS 源请求 */
     public record CreateRssSourceRequest(
         String url,
         String name,
         List<Long> groupIds
     ) {}
 
+    /** 更新 RSS 源请求 */
     public record UpdateRssSourceRequest(
         String url,
         String name,
@@ -60,6 +69,13 @@ public class RssSourceService {
 
     // ---- Search ----
 
+    /**
+     * 按关键字搜索 RSS 源（模糊匹配名称）。
+     * @param keyword 搜索关键字
+     * @param page 页码，从 1 开始
+     * @param size 每页大小
+     * @return 分页的 RSS 源列表
+     */
     public PagedResponse<RssSourceResponse> search(String keyword, int page, int size) {
         if (keyword == null || keyword.isBlank()) {
             return new PagedResponse<>(0, page, size, List.of());
@@ -76,6 +92,11 @@ public class RssSourceService {
 
     // ---- CRUD ----
 
+    /**
+     * 获取 RSS 源列表，可按分组过滤。
+     * @param groupId 分组 ID（null 表示所有源）
+     * @return RSS 源响应列表
+     */
     public List<RssSourceResponse> list(Long groupId) {
         List<RssSource> sources;
         if (groupId != null) {
@@ -95,6 +116,14 @@ public class RssSourceService {
             .collect(Collectors.toList());
     }
 
+    /**
+     * 创建 RSS 源。
+     * 会自动去重、尝试从 RSS XML 解析标题、下载 favicon。
+     * @param request 创建请求
+     * @return 创建的 RSS 源响应
+     * @throws IllegalArgumentException URL 为空时抛出
+     * @throws IllegalStateException 源已存在时抛出
+     */
     @Transactional
     public RssSourceResponse create(CreateRssSourceRequest request) {
         if (request.url == null || request.url.isBlank()) {
@@ -133,6 +162,13 @@ public class RssSourceService {
         return toResponse(source);
     }
 
+    /**
+     * 更新 RSS 源信息。
+     * @param id 源 ID
+     * @param request 更新请求
+     * @return 更新后的 RSS 源响应
+     * @throws NotFoundException 源不存在时抛出
+     */
     @Transactional
     public RssSourceResponse update(Long id, UpdateRssSourceRequest request) {
         RssSource source = RssSource.findById(id);
@@ -161,6 +197,11 @@ public class RssSourceService {
         return toResponse(source);
     }
 
+    /**
+     * 软删除 RSS 源（设置 isActive = false）。
+     * @param id 源 ID
+     * @throws NotFoundException 源不存在时抛出
+     */
     @Transactional
     public void delete(Long id) {
         RssSource source = RssSource.findById(id);
@@ -173,6 +214,12 @@ public class RssSourceService {
 
     // ---- OPML Import/Export ----
 
+    /**
+     * 导入 OPML 文件中的 RSS 源。
+     * 自动创建分组和源，已存在的源跳过。
+     * @param inputStream OPML 文件的输入流
+     * @return 导入结果（created：新建数，skipped：跳过数，errors：错误列表，total：总数）
+     */
     @Transactional
     public Map<String, Object> importOpml(InputStream inputStream) {
         Map<String, Object> result = new LinkedHashMap<>();
@@ -249,6 +296,11 @@ public class RssSourceService {
         return result;
     }
 
+    /**
+     * 导出 RSS 源为 OPML 格式。
+     * @param outputStream 输出流
+     * @param groupIds 要导出的分组 ID 列表（null 或空表示导出所有）
+     */
     public void exportOpml(OutputStream outputStream, List<Long> groupIds) {
         try {
             List<RssGroup> groups;
@@ -311,6 +363,12 @@ public class RssSourceService {
 
     // ---- Favicon ----
 
+    /**
+     * 下载 RSS 源的 favicon 图标并保存到本地。
+     * 图标文件命名为 {source.id}.ico，存储在 ICONS_DIR 目录。
+     * 下载失败仅记录日志，不阻断流程。
+     * @param source RSS 源实体
+     */
     public void downloadFavicon(RssSource source) {
         try {
             URL url = new URL(source.url);
@@ -337,6 +395,7 @@ public class RssSourceService {
 
     // ---- Private helpers ----
 
+    /** 将 RssSource 实体转换为响应 DTO，包含关联分组信息 */
     private RssSourceResponse toResponse(RssSource source) {
         List<RssSourceGroup> associations = RssSourceGroup.find("rssSourceId", source.id).list();
         List<Long> groupIds = associations.stream()
@@ -363,6 +422,7 @@ public class RssSourceService {
         );
     }
 
+    /** 更新 RSS 源的分组关联：先删除旧关联，再创建新关联 */
     private void updateSourceGroups(Long sourceId, List<Long> groupIds) {
         // Delete old associations (iterate to avoid JPQL bulk-delete flush issues with SQLite)
         List<RssSourceGroup> existing = RssSourceGroup.list("rssSourceId", sourceId);
@@ -384,6 +444,7 @@ public class RssSourceService {
         }
     }
 
+    /** 根据名称查找或创建 RSS 分组（导入时使用） */
     private RssGroup findOrCreateGroup(String name) {
         RssGroup group = RssGroup.find("name", name).firstResult();
         if (group == null) {
@@ -395,6 +456,7 @@ public class RssSourceService {
         return group;
     }
 
+    /** 确保 RSS 源与分组的关联存在（导入已存在源时调用） */
     private void ensureGroupAssociation(Long sourceId, Long groupId) {
         RssSourceGroup existing = RssSourceGroup.find(
             "rssSourceId = ?1 and rssGroupId = ?2", sourceId, groupId).firstResult();
@@ -406,6 +468,7 @@ public class RssSourceService {
         }
     }
 
+    /** 从 RSS XML 中解析频道标题（用于创建源时自动命名） */
     private String fetchTitleFromRss(String url) {
         try {
             // Simple RSS XML parsing to get the channel title
@@ -426,6 +489,7 @@ public class RssSourceService {
         return null;
     }
 
+    /** 简易 OPML XML 解析器，将 XML 文档解析为 Outline 列表 */
     private List<OpmlParser.Outline> parseOpmlSimple(InputStream inputStream) throws Exception {
         List<OpmlParser.Outline> outlines = new ArrayList<>();
 
@@ -442,6 +506,7 @@ public class RssSourceService {
         return outlines;
     }
 
+    /** 递归解析 outline 节点，区分分组（含子节点）和源（有 xmlUrl） */
     private void parseOutlines(org.w3c.dom.Node parent, List<OpmlParser.Outline> result) {
         org.w3c.dom.NodeList children = parent.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
@@ -471,6 +536,7 @@ public class RssSourceService {
         }
     }
 
+    /** 生成 OPML 2.0 格式的 XML 并写入输出流 */
     private void generateOpmlXml(List<OpmlWriter.GroupEntry> entries, OutputStream out) throws Exception {
         StringBuilder xml = new StringBuilder();
         xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
@@ -497,6 +563,7 @@ public class RssSourceService {
         out.flush();
     }
 
+    /** XML 转义：替换 &、"、<、>、' 为对应的实体引用 */
     private String escapeXml(String s) {
         if (s == null) return "";
         return s.replace("&", "&amp;")

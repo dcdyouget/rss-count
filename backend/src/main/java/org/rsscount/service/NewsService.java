@@ -12,9 +12,13 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * 新闻管理服务 — 提供新闻列表查询、详情查看、已读标记和素材堆批处理功能。
+ */
 @ApplicationScoped
 public class NewsService {
 
+    /** 分页响应 */
     public record PagedResponse<T>(
         long total,
         int page,
@@ -22,6 +26,7 @@ public class NewsService {
         List<T> items
     ) {}
 
+    /** 新闻列表项 */
     public record NewsListItem(
         Long id,
         String title,
@@ -35,6 +40,7 @@ public class NewsService {
         LocalDateTime publishedAt
     ) {}
 
+    /** 新闻详情（含结构化内容和标签） */
     public record NewsDetail(
         Long id,
         String title,
@@ -48,11 +54,13 @@ public class NewsService {
         String structuredContent
     ) {}
 
+    /** 批量素材堆操作请求（ADD 加入 / REMOVE 移出） */
     public record BatchMaterialPileRequest(
         List<Long> newsIds,
         String action  // ADD or REMOVE
     ) {}
 
+    /** 素材堆中的新闻项 */
     public record MaterialPileItem(
         Long id,
         String title,
@@ -61,6 +69,15 @@ public class NewsService {
 
     // ---- List with pagination and filters ----
 
+    /**
+     * 分页查询新闻列表，支持关键字搜索、报告名筛选和已读状态过滤。
+     * @param page 页码，从 1 开始
+     * @param size 每页大小
+     * @param keyword 标题搜索关键字（可选）
+     * @param reportName 报告名称筛选（可选）
+     * @param isRead 已读状态筛选（可选）
+     * @return 分页的新闻列表
+     */
     public PagedResponse<NewsListItem> list(int page, int size, String keyword,
                                              String reportName, Boolean isRead) {
         StringBuilder query = new StringBuilder("1=1");
@@ -108,6 +125,12 @@ public class NewsService {
 
     // ---- Detail ----
 
+    /**
+     * 获取新闻详情（含结构化内容和标签列表）。
+     * @param id 新闻 ID
+     * @return 新闻详情
+     * @throws NotFoundException 新闻不存在时抛出
+     */
     public NewsDetail getDetail(Long id) {
         News news = News.findById(id);
         if (news == null) {
@@ -118,6 +141,11 @@ public class NewsService {
 
     // ---- Mark as read ----
 
+    /**
+     * 将新闻标记为已读。
+     * @param id 新闻 ID
+     * @throws NotFoundException 新闻不存在时抛出
+     */
     @Transactional
     public void markAsRead(Long id) {
         News news = News.findById(id);
@@ -130,6 +158,12 @@ public class NewsService {
 
     // ---- Batch material pile ----
 
+    /**
+     * 批量将新闻加入或移出素材堆。
+     * @param request 批量操作请求（含新闻 ID 列表和操作类型）
+     * @return 受影响数量
+     * @throws IllegalArgumentException 参数校验失败时抛出
+     */
     @Transactional
     public Map<String, Object> batchMaterialPile(BatchMaterialPileRequest request) {
         if (request.newsIds == null || request.newsIds.isEmpty()) {
@@ -157,6 +191,12 @@ public class NewsService {
 
     // ---- Material pile list ----
 
+    /**
+     * 分页查询素材堆中的新闻（按加入时间降序）。
+     * @param page 页码，从 1 开始
+     * @param size 每页大小
+     * @return 分页的素材堆项列表
+     */
     public PagedResponse<MaterialPileItem> materialPileList(int page, int size) {
         PanacheQuery<News> query = News.find(
             "inMaterialPile = true",
@@ -175,6 +215,7 @@ public class NewsService {
 
     // ---- Private helpers ----
 
+    /** 将 News 实体转换为列表项 DTO */
     private NewsListItem toListItem(News news) {
         String reportName = null;
         Long reportId = null;
@@ -197,6 +238,7 @@ public class NewsService {
         );
     }
 
+    /** 将 News 实体转换为详情 DTO，查询关联标签 */
     private NewsDetail toDetail(News news) {
         // Get tags from news_tag + tag tables
         List<String> tags;

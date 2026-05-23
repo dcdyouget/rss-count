@@ -18,6 +18,11 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * 任务管理 REST 接口。
+ * 路由前缀: /api/v1/tasks
+ * 负责任务的创建、查询、详情查看以及 SSE 进度推送。
+ */
 @Path("/api/v1/tasks")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
@@ -30,6 +35,18 @@ public class TaskController {
 
     // ── DTOs ───────────────────────────────────────────────
 
+    /**
+     * 任务列表项 DTO，用于任务分页列表展示。
+     * @param id 任务ID
+     * @param name 任务名称
+     * @param timeRangeStart 任务查询时间范围（开始）
+     * @param timeRangeEnd 任务查询时间范围（结束）
+     * @param status 任务状态（RUNNING / COMPLETED / FAILED）
+     * @param startedAt 任务开始执行时间
+     * @param endedAt 任务结束时间
+     * @param reportId 关联的报告ID（任务完成后生成）
+     * @param errorMessage 任务失败时的错误信息
+     */
     public record TaskListItem(
         Long id,
         String name,
@@ -42,6 +59,22 @@ public class TaskController {
         String errorMessage
     ) {}
 
+    /**
+     * 任务详情 DTO，包含任务基本信息、关联源列表和新闻列表。
+     * @param id 任务ID
+     * @param name 任务名称
+     * @param timeRangeStart 任务查询时间范围（开始）
+     * @param timeRangeEnd 任务查询时间范围（结束）
+     * @param status 任务状态
+     * @param sourceType 源类型（ALL / SPECIFIC）
+     * @param sourceConfig 源配置 JSON
+     * @param startedAt 任务开始时间
+     * @param endedAt 任务结束时间
+     * @param reportId 关联报告ID
+     * @param errorMessage 错误信息
+     * @param sources 关联的 RSS 源列表
+     * @param news 关联的新闻列表（仅已完成任务）
+     */
     public record TaskDetailItem(
         Long id,
         String name,
@@ -58,12 +91,39 @@ public class TaskController {
         List<NewsBrief> news
     ) {}
 
+    /**
+     * RSS 源概要信息。
+     * @param id 源ID
+     * @param name 源名称
+     * @param fetchedCount 抓取数量
+     */
     public record SourceInfo(Long id, String name, int fetchedCount) {}
 
+    /**
+     * 新闻概要信息。
+     * @param id 新闻ID
+     * @param title 新闻标题
+     * @param sourceRssName 来源 RSS 名称
+     */
     public record NewsBrief(Long id, String title, String sourceRssName) {}
 
+    /**
+     * 通用分页响应包装。
+     * @param total 总记录数
+     * @param page 当前页码
+     * @param size 每页条数
+     * @param items 当前页数据列表
+     */
     public record PagedResponse<T>(long total, int page, int size, List<T> items) {}
 
+    /**
+     * 创建任务的请求体。
+     * @param name 任务名称
+     * @param timeRangeStart 抓取时间范围（开始），默认24小时前
+     * @param timeRangeEnd 抓取时间范围（结束），默认为当前时间
+     * @param sourceType 源类型，ALL 表示所有源，SPECIFIC 表示指定源
+     * @param sourceConfig 源配置，当 sourceType=SPECIFIC 时传递具体源ID等信息
+     */
     public record CreateTaskRequest(
         String name,
         LocalDateTime timeRangeStart,
@@ -72,12 +132,30 @@ public class TaskController {
         Map<String, Object> sourceConfig
     ) {}
 
+    /**
+     * 创建任务的响应体。
+     * @param taskId 创建的任务ID
+     * @param reportId 关联的报告ID
+     */
     public record CreateTaskResponse(Long taskId, Long reportId) {}
 
+    /**
+     * 最后一次任务结束时间响应。
+     * @param endedAt 最后一次已完成任务的结束时间
+     */
     public record LastEndTimeResponse(LocalDateTime endedAt) {}
 
     // ── 5. GET /tasks — List with pagination and filters ───
 
+    /**
+     * 分页查询任务列表，支持按状态和时间筛选。
+     * @param page 页码（1-based）
+     * @param size 每页条数，默认20
+     * @param status 任务状态筛选（可选）
+     * @param createdAfter 创建时间下限（可选，ISO 格式）
+     * @param createdBefore 创建时间上限（可选，ISO 格式）
+     * @return 分页响应，按创建时间倒序排列
+     */
     @GET
     public PagedResponse<TaskListItem> list(
         @QueryParam("page") @DefaultValue("1") int page,
@@ -117,6 +195,14 @@ public class TaskController {
 
     // ── 6. GET /tasks/{id} — Task detail ───────────────────
 
+    /**
+     * 获取指定任务的详细信息，包括关联的源列表和新闻列表（已完成任务）。
+     * @param id 任务ID
+     * @param newsPage 新闻分页页码（1-based）
+     * @param newsSize 新闻每页条数
+     * @return 任务详情
+     * @throws NotFoundException 任务不存在时抛出
+     */
     @GET
     @Path("/{id}")
     public TaskDetailItem getDetail(
@@ -161,6 +247,11 @@ public class TaskController {
 
     // ── 4. POST /tasks — Create and execute ────────────────
 
+    /**
+     * 创建新任务并异步执行。自动生成对应的报告记录。
+     * @param request 创建任务的请求体
+     * @return 201 Created，包含 taskId 和 reportId
+     */
     @POST
     @Transactional
     public Response create(CreateTaskRequest request) {
@@ -221,6 +312,10 @@ public class TaskController {
 
     // ── 8. GET /tasks/suggest-name ─────────────────────────
 
+    /**
+     * 自动建议下一个任务名称，格式为 "yyyy年M月d日-第N次任务"。
+     * @return 建议的任务名称（纯文本）
+     */
     @GET
     @Path("/suggest-name")
     @Produces(MediaType.TEXT_PLAIN)
@@ -237,6 +332,10 @@ public class TaskController {
 
     // ── 9. GET /tasks/last-end-time ────────────────────────
 
+    /**
+     * 查询最后一次已完成任务的结束时间。
+     * @return 最后一次结束时间，没有已完成任务时返回 null
+     */
     @GET
     @Path("/last-end-time")
     public Response lastEndTime() {
@@ -252,6 +351,13 @@ public class TaskController {
 
     // ── 7. GET /tasks/{id}/stream — SSE ────────────────────
 
+    /**
+     * SSE (Server-Sent Events) 端点，实时推送任务执行进度。
+     * 客户端可通过此端点接收任务运行过程中的状态更新。
+     * @param id 任务ID
+     * @param eventSink SSE 事件通道
+     * @param sse SSE 工厂对象
+     */
     @GET
     @Path("/{id}/stream")
     @Produces(MediaType.SERVER_SENT_EVENTS)
