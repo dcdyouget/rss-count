@@ -50,7 +50,7 @@ export default function ReportDetail() {
 
   const hasMore = displayCount < filteredNews.length;
 
-  const savedScrollY = useRef<number>(0);
+  const savedNewsId = useRef<number>(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   const handleSearchChange = (value: string) => {
@@ -59,16 +59,22 @@ export default function ReportDetail() {
   };
 
   const handleNewsClick = (newsId: number) => {
-    savedScrollY.current = window.scrollY;
-    window.scrollTo(0, 0);
+    savedNewsId.current = newsId;
     setSelectedNewsId(newsId);
     setViewMode('detail');
   };
 
   const handleBack = () => {
+    const targetId = savedNewsId.current;
     setViewMode('grid');
     setSelectedNewsId(null);
-    requestAnimationFrame(() => window.scrollTo(0, savedScrollY.current));
+    // 延迟执行，等 grid 渲染完成后再滚动到目标位置
+    setTimeout(() => {
+      const el = document.getElementById(`news-card-${targetId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'instant', block: 'center' });
+      }
+    }, 150);
   };
 
   // Infinite scroll via IntersectionObserver
@@ -152,7 +158,7 @@ export default function ReportDetail() {
               <>
                 <Row gutter={[16, 16]}>
                   {displayedNews.map((item) => (
-                    <Col key={item.id} xs={24} sm={24} lg={12} xl={8}>
+                    <Col key={item.id} xs={24} sm={24} lg={12} xl={8} id={`news-card-${item.id}`}>
                       <NewsCard
                         news={item}
                         onClick={() => handleNewsClick(item.id)}
