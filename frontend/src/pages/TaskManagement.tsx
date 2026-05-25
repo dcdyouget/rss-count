@@ -29,8 +29,8 @@ export default function TaskManagement() {
     page,
     size: DEFAULT_PAGE_SIZE,
     status: statusFilter,
-    createdAfter: dateRange?.[0]?.toISOString(),
-    createdBefore: dateRange?.[1]?.toISOString(),
+    createdAfter: dateRange?.[0]?.tz('Asia/Shanghai')?.format('YYYY-MM-DDTHH:mm:ss'),
+    createdBefore: dateRange?.[1]?.tz('Asia/Shanghai')?.format('YYYY-MM-DDTHH:mm:ss'),
   });
   const { data: suggestName } = useSuggestTaskName();
   const { data: lastEndTime } = useLastEndTime();
@@ -53,13 +53,14 @@ export default function TaskManagement() {
     sourceSelector?: { sourceType: CreateTaskRequest['sourceType']; sourceConfig?: CreateTaskRequest['sourceConfig'] };
     customRange?: [dayjs.Dayjs, dayjs.Dayjs];
   }) => {
+    const now = dayjs().tz('Asia/Shanghai');
     let start: string;
-    let end: string = new Date().toISOString();
+    let end: string = now.format('YYYY-MM-DDTHH:mm:ss');
 
     if (timePreset === '1h') {
-      start = dayjs().subtract(1, 'hour').toISOString();
+      start = now.subtract(1, 'hour').format('YYYY-MM-DDTHH:mm:ss');
     } else if (timePreset === '6h') {
-      start = dayjs().subtract(6, 'hour').toISOString();
+      start = now.subtract(6, 'hour').format('YYYY-MM-DDTHH:mm:ss');
     } else if (timePreset === 'last_end') {
       if (lastEndTime?.endedAt) {
         start = lastEndTime.endedAt;
@@ -72,8 +73,8 @@ export default function TaskManagement() {
         message.warning('请选择自定义时间范围');
         return;
       }
-      start = values.customRange[0].toISOString();
-      end = values.customRange[1].toISOString();
+      start = values.customRange[0].tz('Asia/Shanghai').format('YYYY-MM-DDTHH:mm:ss');
+      end = values.customRange[1].tz('Asia/Shanghai').format('YYYY-MM-DDTHH:mm:ss');
     } else {
       start = dayjs().subtract(1, 'hour').toISOString();
     }

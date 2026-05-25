@@ -6,6 +6,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.rsscount.service.DraftService;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -64,8 +65,9 @@ public class DraftController {
             var result = draftService.create(request);
             return Response.status(Response.Status.CREATED).entity(result).build();
         } catch (IllegalArgumentException e) {
+            String msg = e.getMessage();
             return Response.status(Response.Status.BAD_REQUEST)
-                .entity(Map.of("error", e.getMessage())).build();
+                .entity(Map.of("error", msg, "message", msg)).build();
         }
     }
 
@@ -87,8 +89,9 @@ public class DraftController {
         } catch (jakarta.ws.rs.NotFoundException e) {
             throw e;
         } catch (IllegalArgumentException e) {
+            String msg = e.getMessage();
             return Response.status(Response.Status.BAD_REQUEST)
-                .entity(Map.of("error", e.getMessage())).build();
+                .entity(Map.of("error", msg, "message", msg)).build();
         }
     }
 
@@ -111,7 +114,21 @@ public class DraftController {
         }
     }
 
-    // ── 22. POST /drafts/{id}/generate — AI generation ────
+    // ── 22. GET /drafts/{id}/versions — Version history ──
+
+    /**
+     * 获取稿件的所有历史版本（按版本号降序）。
+     * @param id 稿件ID
+     * @return 版本信息列表
+     * @throws NotFoundException 稿件不存在时抛出
+     */
+    @GET
+    @Path("/{id}/versions")
+    public List<DraftService.DraftVersionInfo> getVersions(@PathParam("id") Long id) {
+        return draftService.getVersions(id);
+    }
+
+    // ── 23. POST /drafts/{id}/generate — AI generation ────
 
     /**
      * 使用 AI 生成指定稿件的内容。基于稿件关联的新闻源自动生成文本。

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import client from './client';
 import type {
+  DraftVersion,
   DraftWithNews,
   DraftListSummary,
   DraftListParams,
@@ -83,5 +84,14 @@ export function useMaterialPile(params: { page?: number; size?: number } = {}) {
       client
         .get<{ total: number; items: MaterialPileItem[] }>('/news/material-pile', { params })
         .then((r) => r.data),
+  });
+}
+
+export function useDraftVersions(id: number | null) {
+  return useQuery({
+    queryKey: ['drafts', id, 'versions'],
+    queryFn: () =>
+      client.get<DraftVersion[]>(`/drafts/${id}/versions`).then((r) => r.data),
+    enabled: !!id,
   });
 }

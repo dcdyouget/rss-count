@@ -52,7 +52,8 @@ public class DraftService {
         String prompt,
         double temperature,
         String style,
-        String targetPlatform
+        String targetPlatform,
+        String latestContent
     ) {}
 
     public record NewsBrief(
@@ -116,9 +117,6 @@ public class DraftService {
         if (request.name == null || request.name.isBlank()) {
             throw new IllegalArgumentException("稿件名称不能为空");
         }
-        if (request.newsIds == null || request.newsIds.isEmpty()) {
-            throw new IllegalArgumentException("newsIds不能为空");
-        }
         if (request.temperature < 0.0 || request.temperature > 2.0) {
             throw new IllegalArgumentException("temperature必须在0.0到2.0之间");
         }
@@ -149,6 +147,8 @@ public class DraftService {
             throw new NotFoundException("稿件不存在");
         }
 
+        draft.updatedAt = LocalDateTime.now();
+
         if (request.name != null && !request.name.isBlank()) {
             draft.name = request.name;
         }
@@ -170,6 +170,29 @@ public class DraftService {
         if (request.newsIds != null && !request.newsIds.isEmpty()) {
             DraftNews.delete("draftId", draft.id);
             saveDraftNewsAssociations(draft.id, request.newsIds);
+        }
+
+        // Save a new version when content is provided and has changed
+        if (request.latestContent != null && !request.latestContent.isBlank()) {
+            int newVersion = draft.latestVersion + 1;
+
+            // Deduplicate: skip if content is identical to latest version
+            DraftVersion lastVer = DraftVersion.find("draft.id = ?1 order by version desc", id).firstResult();
+            if (lastVer == null || !lastVer.content.equals(request.latestContent)) {
+                DraftVersion dv = new DraftVersion();
+                dv.draft = draft;
+                dv.version = newVersion;
+                dv.content = request.latestContent;
+                dv.prompt = draft.prompt != null ? draft.prompt : "";
+                dv.temperature = draft.temperature;
+                dv.style = draft.style != null ? draft.style : "";
+                dv.targetPlatform = draft.targetPlatform != null ? draft.targetPlatform : "";
+                dv.createdAt = LocalDateTime.now();
+                dv.persist();
+
+                draft.latestVersion = newVersion;
+                draft.latestContent = request.latestContent;
+            }
         }
 
         return toDraftResponse(draft);

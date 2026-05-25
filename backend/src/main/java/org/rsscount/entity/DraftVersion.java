@@ -34,4 +34,20 @@ public class DraftVersion extends PanacheEntityBase {
     /** 版本创建时间，不可更新 */
     @Column(name = "created_at", nullable = false, updatable = false)
     public LocalDateTime createdAt = LocalDateTime.now();
+
+    /** 该版本使用的提示词（prompt），快照历史生成参数 */
+    @Column(name = "prompt", columnDefinition = "TEXT")
+    public String prompt;
+
+    /** 该版本使用的 AI 温度参数 */
+    @Column(name = "temperature")
+    public Double temperature;
+
+    /** 该版本使用的写作风格 */
+    @Column(name = "style", length = 50)
+    public String style;
+
+    /** 该版本的目标发布平台 */
+    @Column(name = "target_platform", length = 50)
+    public String targetPlatform;
 }

@@ -231,6 +231,7 @@ export interface UpdateDraftRequest {
   temperature: number;
   style: string;
   targetPlatform: string;
+  latestContent?: string;
 }
 
 export interface GenerateResponse {

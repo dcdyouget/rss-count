@@ -1,5 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+dayjs.extend(utc);
+dayjs.extend(timezone);
 import {
   Card, Row, Col, List, Drawer, Form, Button, Radio, Skeleton, Empty,
   Typography, theme, message, Input, DatePicker, Tooltip, Space, Flex,
@@ -48,7 +53,7 @@ export default function Dashboard() {
   const handleCreateTask = async () => {
     try {
       const values = await form.validateFields();
-      const now = new Date();
+      const now = dayjs().tz('Asia/Shanghai');
       let timeRangeStart: string;
       let timeRangeEnd: string;
 
@@ -58,14 +63,14 @@ export default function Dashboard() {
           return;
         }
         timeRangeStart = lastEndTime.endedAt;
-        timeRangeEnd = now.toISOString();
+        timeRangeEnd = now.format('YYYY-MM-DDTHH:mm:ss');
       } else if (values.timeRange === 'custom') {
-        timeRangeStart = values.customRange[0].toISOString();
-        timeRangeEnd = values.customRange[1].toISOString();
+        timeRangeStart = dayjs(values.customRange[0]).tz('Asia/Shanghai').format('YYYY-MM-DDTHH:mm:ss');
+        timeRangeEnd = dayjs(values.customRange[1]).tz('Asia/Shanghai').format('YYYY-MM-DDTHH:mm:ss');
       } else {
         const hours = values.timeRange === '1h' ? 1 : 6;
-        timeRangeEnd = now.toISOString();
-        timeRangeStart = new Date(now.getTime() - hours * 3600000).toISOString();
+        timeRangeEnd = now.format('YYYY-MM-DDTHH:mm:ss');
+        timeRangeStart = now.subtract(hours, 'hour').format('YYYY-MM-DDTHH:mm:ss');
       }
 
       await createTask.mutateAsync({

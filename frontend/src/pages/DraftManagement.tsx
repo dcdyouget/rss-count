@@ -1,19 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import {
-  Row, Col, Card, Select, Button, Input, Slider, Tabs, List,
+  Row, Col, Card, Select, Button, Input, Slider, Table, Tabs, List,
   Modal, Form, Space, Typography, Empty, message, Checkbox,
   theme, Flex, Spin, Tooltip,
 } from 'antd';
 import {
   PlusOutlined, SaveOutlined, CopyOutlined, DeleteOutlined,
-  SendOutlined,
+  SendOutlined, ArrowLeftOutlined,
 } from '@ant-design/icons';
-import type { DraftListSummary, MaterialPileItem } from '@/types';
+import type { MaterialPileItem } from '@/types';
 import {
   useDraftList, useDraft, useCreateDraft, useUpdateDraft,
-  useDeleteDraft, useGenerateDraft, useMaterialPile,
+  useDeleteDraft, useGenerateDraft, useMaterialPile, useDraftVersions,
 } from '@/api/drafts';
 import { useBatchMaterialPile } from '@/api/news';
 import { useAutoSave } from '@/hooks/useAutoSave';
@@ -24,13 +25,14 @@ import {
   DRAFT_TEMPERATURE_STEP, DRAFT_TEMPERATURE_DEFAULT,
 } from '@/utils/constants';
 
-const { Text } = Typography;
+const { Text, Title } = Typography;
 const { TextArea } = Input;
 
 export default function DraftManagement() {
   const { token } = theme.useToken();
   const params = useParams<{ id?: string }>();
 
+  const [viewMode, setViewMode] = useState<'list' | 'detail'>('list');
   const [selectedDraftId, setSelectedDraftId] = useState<number | null>(null);
   const [draftContent, setDraftContent] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -39,16 +41,22 @@ export default function DraftManagement() {
   const [platform, setPlatform] = useState(DRAFT_PLATFORMS[4].value);
   const [materialNews, setMaterialNews] = useState<MaterialPileItem[]>([]);
   const [editorTab, setEditorTab] = useState('rich');
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
 
   const [newModalOpen, setNewModalOpen] = useState(false);
   const [newDraftName, setNewDraftName] = useState('');
   const [newDraftNewsIds, setNewDraftNewsIds] = useState<number[]>([]);
 
-  const { data: draftListData, isLoading: listLoading } = useDraftList({});
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  const { data: draftListData, isLoading: listLoading } = useDraftList({ page, size: pageSize });
   const { data: draft, isLoading: draftLoading } = useDraft(selectedDraftId);
   const { data: materialPile } = useMaterialPile({});
+  const { data: versions, isLoading: versionsLoading } = useDraftVersions(selectedDraftId);
 
   const createDraft = useCreateDraft();
+  const queryClient = useQueryClient();
   const updateDraft = useUpdateDraft();
   const deleteDraft = useDeleteDraft();
   const generateDraft = useGenerateDraft();
@@ -58,6 +66,7 @@ export default function DraftManagement() {
   useEffect(() => {
     if (params.id) {
       setSelectedDraftId(Number(params.id));
+      setViewMode('detail');
     }
   }, [params.id]);
 
@@ -65,6 +74,7 @@ export default function DraftManagement() {
   useEffect(() => {
     if (draft) {
       setDraftContent(draft.latestContent || '');
+      setSelectedVersion(null);
       setPrompt(draft.prompt || '');
       setTemperature(draft.temperature ?? DRAFT_TEMPERATURE_DEFAULT);
       setStyle(draft.style || DRAFT_STYLES[0].value);
@@ -82,18 +92,18 @@ export default function DraftManagement() {
   // Save function for auto-save
   const saveContent = useCallback(
     async (content: string) => {
-      if (!selectedDraftId || !draft) return;
+      if (!selectedDraftId) return;
       await updateDraft.mutateAsync({
         id: selectedDraftId,
         data: {
-          name: draft.name,
+          name: draft?.name ?? '',
           newsIds: materialNews.map((n) => n.id),
           prompt,
           temperature,
           style,
           targetPlatform: platform,
           latestContent: content,
-        } as any,
+        },
       });
     },
     [selectedDraftId, draft, materialNews, prompt, temperature, style, platform, updateDraft],
@@ -107,6 +117,22 @@ export default function DraftManagement() {
 
   const handleSelectDraft = (id: number) => {
     setSelectedDraftId(id);
+    setSelectedVersion(null);
+  };
+
+  const handleSelectVersion = (version: number | null) => {
+    setSelectedVersion(version);
+    if (version === null) {
+      // Revert to latest content when clearing version selection
+      if (draft) {
+        setDraftContent(draft.latestContent || '');
+      }
+    } else {
+      const v = versions?.find((v) => v.version === version);
+      if (v) {
+        setDraftContent(v.content);
+      }
+    }
   };
 
   const handleOpenNewModal = () => {
@@ -119,6 +145,9 @@ export default function DraftManagement() {
       message.warning('请输入稿件名称');
       return;
     }
+    if (newDraftNewsIds.length === 0) {
+      message.warning('请选择至少一条新闻素材');
+    }
     try {
       const result = await createDraft.mutateAsync({
         name: newDraftName.trim(),
@@ -129,6 +158,7 @@ export default function DraftManagement() {
         targetPlatform: DRAFT_PLATFORMS[4].value,
       });
       setSelectedDraftId(result.id);
+      setViewMode('detail');
       setNewModalOpen(false);
       setNewDraftName('');
       setNewDraftNewsIds([]);
@@ -143,6 +173,7 @@ export default function DraftManagement() {
     try {
       await deleteDraft.mutateAsync(selectedDraftId);
       setSelectedDraftId(null);
+      setViewMode('list');
       setDraftContent('');
       setPrompt('');
       setTemperature(DRAFT_TEMPERATURE_DEFAULT);
@@ -164,19 +195,39 @@ export default function DraftManagement() {
     try {
       const result = await generateDraft.mutateAsync(selectedDraftId);
       setDraftContent(result.content);
+      setSelectedVersion(null);
+      queryClient.invalidateQueries({ queryKey: ['drafts', selectedDraftId, 'versions'] });
       message.success('稿件生成成功');
     } catch {
       // handled by interceptor
     }
   };
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (!draftContent) {
       message.warning('没有可复制的内容');
       return;
     }
-    navigator.clipboard.writeText(draftContent);
-    message.success('内容已复制');
+    try {
+      // 优先使用 Clipboard API
+      await navigator.clipboard.writeText(draftContent);
+      message.success('内容已复制');
+    } catch {
+      // Fallback: 使用传统 execCommand 方式
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = draftContent;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        message.success('内容已复制');
+      } catch {
+        message.error('复制失败，请手动复制');
+      }
+    }
   };
 
   const handleRemoveMaterial = async (newsId: number) => {
@@ -192,7 +243,7 @@ export default function DraftManagement() {
           temperature,
           style,
           targetPlatform: platform,
-        } as any,
+        },
       });
       setMaterialNews((prev) => prev.filter((n) => n.id !== newsId));
     } catch {
@@ -213,11 +264,6 @@ export default function DraftManagement() {
     }
   };
 
-  const draftOptions = (draftListData?.items ?? []).map((d: DraftListSummary) => ({
-    label: d.name,
-    value: d.id,
-  }));
-
   const canGenerate = materialNews.length > 0 && !!selectedDraftId;
 
   const saveStatusText = isSaving
@@ -228,6 +274,191 @@ export default function DraftManagement() {
         ? '未保存'
         : '';
 
+  const handleBackToList = () => {
+    setViewMode('list');
+    setSelectedDraftId(null);
+    setDraftContent('');
+    setPrompt('');
+    setTemperature(DRAFT_TEMPERATURE_DEFAULT);
+    setStyle(DRAFT_STYLES[0].value);
+    setPlatform(DRAFT_PLATFORMS[4].value);
+    setMaterialNews([]);
+  };
+
+  // ─── List View ───────────────────────────────────────────────────────────────
+  if (viewMode === 'list') {
+    return (
+      <div>
+        <Flex
+          justify="space-between"
+          align="center"
+          style={{ marginBottom: token.marginLG }}
+        >
+          <Title level={4} style={{ margin: 0 }}>稿件管理</Title>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenNewModal}>
+            新建稿件
+          </Button>
+        </Flex>
+
+        <Card styles={{ body: { padding: 0 } }}>
+          <Table
+            dataSource={draftListData?.items ?? []}
+            rowKey="id"
+            size="middle"
+            loading={listLoading}
+            locale={{ emptyText: '暂无稿件，请新建' }}
+            pagination={{
+              current: page,
+              pageSize,
+              total: draftListData?.total ?? 0,
+              showSizeChanger: true,
+              showTotal: (total) => `共 ${total} 条`,
+              onChange: (p, ps) => {
+                setPage(p);
+                setPageSize(ps);
+              },
+            }}
+            columns={[
+              {
+                title: '稿件名称',
+                dataIndex: 'name',
+                key: 'name',
+                ellipsis: true,
+              },
+              {
+                title: '创建时间',
+                dataIndex: 'createdAt',
+                key: 'createdAt',
+                render: (val: string) => formatDateTime(val),
+                width: 160,
+              },
+              {
+                title: '新闻数',
+                dataIndex: 'newsCount',
+                key: 'newsCount',
+                width: 80,
+                align: 'center',
+              },
+              {
+                title: '版本',
+                dataIndex: 'latestVersion',
+                key: 'latestVersion',
+                width: 80,
+                align: 'center',
+              },
+              {
+                title: '操作',
+                key: 'action',
+                width: 120,
+                render: (_: unknown, record: { id: number }) => (
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => {
+                      setSelectedDraftId(record.id);
+                      setViewMode('detail');
+                    }}
+                  >
+                    查看详情
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        </Card>
+
+        {/* New draft modal */}
+        <Modal
+          title="新建稿件"
+          open={newModalOpen}
+          onOk={handleNewDraft}
+          onCancel={() => {
+            setNewModalOpen(false);
+            setNewDraftName('');
+            setNewDraftNewsIds([]);
+          }}
+          confirmLoading={createDraft.isPending}
+          okText="创建"
+          cancelText="取消"
+        >
+          <Form layout="vertical">
+            <Form.Item label="稿件名称" required>
+              <Input
+                value={newDraftName}
+                onChange={(e) => setNewDraftName(e.target.value)}
+                placeholder="输入稿件名称"
+              />
+            </Form.Item>
+            <Form.Item label="素材堆 (勾选加入稿件，点击删除移出素材堆)">
+              <List
+                dataSource={materialPile?.items ?? []}
+                locale={{
+                  emptyText: (
+                    <Empty
+                      description="素材堆为空，请先在新闻管理中添加素材"
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    />
+                  ),
+                }}
+                style={{ maxHeight: 300, overflow: 'auto' }}
+                renderItem={(item: MaterialPileItem) => (
+                  <List.Item
+                    style={{
+                      padding: `${token.paddingSM}px ${token.paddingMD}px`,
+                    }}
+                    actions={[
+                      <Button
+                        key="delete"
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        loading={batchMaterialPile.isPending}
+                        onClick={() => handleRemoveFromMaterialPile(item.id)}
+                      />,
+                    ]}
+                  >
+                    <Checkbox
+                      checked={newDraftNewsIds.includes(item.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setNewDraftNewsIds((prev) => [...prev, item.id]);
+                        } else {
+                          setNewDraftNewsIds((prev) =>
+                            prev.filter((id) => id !== item.id),
+                          );
+                        }
+                      }}
+                    >
+                      <Space direction="vertical" size={0}>
+                        <Text
+                          ellipsis
+                          style={{ maxWidth: 220, fontSize: token.fontSize }}
+                        >
+                          {item.title}
+                        </Text>
+                        <Text
+                          style={{
+                            fontSize: token.fontSizeSM,
+                            color: token.colorTextTertiary,
+                          }}
+                        >
+                          {formatDateTime(item.materialPileAddedAt)}
+                        </Text>
+                      </Space>
+                    </Checkbox>
+                  </List.Item>
+                )}
+              />
+            </Form.Item>
+          </Form>
+        </Modal>
+      </div>
+    );
+  }
+
+  // ─── Detail View ─────────────────────────────────────────────────────────────
+
   return (
     <div>
       {/* Top bar */}
@@ -237,19 +468,36 @@ export default function DraftManagement() {
         style={{ marginBottom: token.marginLG }}
       >
         <Space size={token.marginSM}>
-          <Select
-            placeholder="选择稿件"
-            style={{ width: 240 }}
-            value={selectedDraftId}
-            onChange={handleSelectDraft}
-            options={draftOptions}
-            loading={listLoading}
-            allowClear
-            notFoundContent={<Empty description="暂无稿件" />}
-          />
-          <Button icon={<PlusOutlined />} onClick={handleOpenNewModal}>
-            新建稿件
+          <Button
+            icon={<ArrowLeftOutlined />}
+            onClick={handleBackToList}
+          >
+            返回列表
           </Button>
+          <Select
+            value={selectedDraftId}
+            onChange={(id) => handleSelectDraft(id)}
+            style={{ width: 200 }}
+            options={draftListData?.items.map((d) => ({
+              label: d.name,
+              value: d.id,
+            })) ?? []}
+            placeholder="切换稿件"
+            loading={listLoading}
+          />
+          <Select
+            placeholder="版本历史"
+            value={selectedVersion}
+            onChange={handleSelectVersion}
+            options={versions?.map((v) => ({
+              label: `v${v.version} - ${dayjs(v.createdAt).format('MM-DD HH:mm')}`,
+              value: v.version,
+            })) ?? []}
+            style={{ width: 160 }}
+            notFoundContent="暂无历史版本"
+            allowClear
+            loading={versionsLoading}
+          />
           {selectedDraftId && (
             <Button
               danger
@@ -294,7 +542,7 @@ export default function DraftManagement() {
       {/* Empty state */}
       {!selectedDraftId && !draftLoading && (
         <Empty
-          description="请选择或创建一个稿件"
+          description="暂无稿件"
           style={{ padding: 80 }}
         >
           <Button
@@ -311,7 +559,7 @@ export default function DraftManagement() {
       {selectedDraftId && !draftLoading && (
         <Row gutter={16}>
           {/* Left panel */}
-          <Col span={10}>
+          <Col span={7}>
             <Flex vertical gap={token.marginMD}>
               {/* Material pile */}
               <Card
@@ -484,7 +732,7 @@ export default function DraftManagement() {
           </Col>
 
           {/* Right panel */}
-          <Col span={14}>
+          <Col span={17}>
             <Card
               styles={{ body: { padding: 0 } }}
               style={{ borderRadius: token.borderRadiusLG, overflow: 'hidden' }}
@@ -569,96 +817,49 @@ export default function DraftManagement() {
                 ]}
               />
             </Card>
+
+            {/* Go to publish section */}
+            <Card
+              title={<Text strong>去投稿</Text>}
+              size="small"
+              style={{ marginTop: token.marginMD }}
+            >
+              <Row gutter={12}>
+                <Col span={8}>
+                  <Button
+                    block
+                    size="large"
+                    icon={<span role="img" aria-label="知乎">📝</span>}
+                    onClick={() => window.open('https://zhuanlan.zhihu.com/write', '_blank')}
+                  >
+                    知乎
+                  </Button>
+                </Col>
+                <Col span={8}>
+                  <Button
+                    block
+                    size="large"
+                    icon={<span role="img" aria-label="小红书">📕</span>}
+                    onClick={() => window.open('https://creator.xiaohongshu.com/publish/publish', '_blank')}
+                  >
+                    小红书
+                  </Button>
+                </Col>
+                <Col span={8}>
+                  <Button
+                    block
+                    size="large"
+                    icon={<span role="img" aria-label="小黑盒">🎮</span>}
+                    onClick={() => window.open('https://xiaoheihe.com/write', '_blank')}
+                  >
+                    小黑盒
+                  </Button>
+                </Col>
+              </Row>
+            </Card>
           </Col>
         </Row>
       )}
-
-      {/* New draft modal */}
-      <Modal
-        title="新建稿件"
-        open={newModalOpen}
-        onOk={handleNewDraft}
-        onCancel={() => {
-          setNewModalOpen(false);
-          setNewDraftName('');
-          setNewDraftNewsIds([]);
-        }}
-        confirmLoading={createDraft.isPending}
-        okText="创建"
-        cancelText="取消"
-      >
-        <Form layout="vertical">
-          <Form.Item label="稿件名称" required>
-            <Input
-              value={newDraftName}
-              onChange={(e) => setNewDraftName(e.target.value)}
-              placeholder="输入稿件名称"
-            />
-          </Form.Item>
-          <Form.Item label="素材堆 (勾选加入稿件，点击删除移出素材堆)">
-            <List
-              dataSource={materialPile?.items ?? []}
-              locale={{
-                emptyText: (
-                  <Empty
-                    description="素材堆为空，请先在新闻管理中添加素材"
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  />
-                ),
-              }}
-              style={{ maxHeight: 300, overflow: 'auto' }}
-              renderItem={(item: MaterialPileItem) => (
-                <List.Item
-                  style={{
-                    padding: `${token.paddingSM}px ${token.paddingMD}px`,
-                  }}
-                  actions={[
-                    <Button
-                      key="delete"
-                      type="text"
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                      loading={batchMaterialPile.isPending}
-                      onClick={() => handleRemoveFromMaterialPile(item.id)}
-                    />,
-                  ]}
-                >
-                  <Checkbox
-                    checked={newDraftNewsIds.includes(item.id)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setNewDraftNewsIds((prev) => [...prev, item.id]);
-                      } else {
-                        setNewDraftNewsIds((prev) =>
-                          prev.filter((id) => id !== item.id),
-                        );
-                      }
-                    }}
-                  >
-                    <Space direction="vertical" size={0}>
-                      <Text
-                        ellipsis
-                        style={{ maxWidth: 220, fontSize: token.fontSize }}
-                      >
-                        {item.title}
-                      </Text>
-                      <Text
-                        style={{
-                          fontSize: token.fontSizeSM,
-                          color: token.colorTextTertiary,
-                        }}
-                      >
-                        {formatDateTime(item.materialPileAddedAt)}
-                      </Text>
-                    </Space>
-                  </Checkbox>
-                </List.Item>
-              )}
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
     </div>
   );
 }

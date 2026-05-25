@@ -62,6 +62,11 @@ public class NewsFormatService {
             raw.title = TextCleaner.clean(raw.title);
         }
 
+        // 1.5. Strip HTML from RSS summary (if present)
+        if (raw.summary != null && !raw.summary.isBlank()) {
+            raw.summary = Jsoup.parse(raw.summary).text();
+        }
+
         // 2. Clean raw HTML into safe, sanitized HTML
         String rawContent = raw.rawContent;
         if (rawContent != null && !rawContent.isBlank()) {

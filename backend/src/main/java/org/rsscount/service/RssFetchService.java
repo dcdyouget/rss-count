@@ -14,8 +14,11 @@ import org.rsscount.entity.RssSource;
 import org.rsscount.util.SimHash;
 import org.rsscount.util.TextCleaner;
 
-import java.net.HttpURLConnection;
-import java.net.URL;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
@@ -36,28 +39,36 @@ public class RssFetchService {
      */
     public FetchResult parseFeed(RssSource source) throws Exception {
         Log.infof("Fetching RSS: %s", source.url);
-        URL feedUrl = new URL(source.url);
-        HttpURLConnection conn = (HttpURLConnection) feedUrl.openConnection();
-        conn.setConnectTimeout(15_000);
-        conn.setReadTimeout(30_000);
 
-        // 发送缓存的 ETag/Last-Modified
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(15))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+
+        HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(source.url))
+                .timeout(Duration.ofSeconds(30))
+                .GET();
+
+        // Send ETag/Last-Modified if we have cached values
         if (source.etag != null && !source.etag.isBlank())
-            conn.setRequestProperty("If-None-Match", source.etag);
+            reqBuilder.header("If-None-Match", source.etag);
         if (source.lastModified != null && !source.lastModified.isBlank())
-            conn.setRequestProperty("If-Modified-Since", source.lastModified);
+            reqBuilder.header("If-Modified-Since", source.lastModified);
 
-        int status = conn.getResponseCode();
-        if (status == HttpURLConnection.HTTP_NOT_MODIFIED) {
+        HttpRequest request = reqBuilder.build();
+        HttpResponse<java.io.InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+
+        if (response.statusCode() == 304) {
             Log.infof("RSS not modified (304): %s", source.url);
             return new FetchResult(null, source.etag, source.lastModified);
         }
 
-        String newEtag = conn.getHeaderField("ETag");
-        String newLastModified = conn.getHeaderField("Last-Modified");
+        String newEtag = response.headers().firstValue("ETag").orElse(null);
+        String newLastModified = response.headers().firstValue("Last-Modified").orElse(null);
 
         SyndFeedInput input = new SyndFeedInput();
-        SyndFeed feed = input.build(new XmlReader(conn.getInputStream()));
+        SyndFeed feed = input.build(new XmlReader(response.body()));
         Log.infof("RSS fetched: %s — %d entries", source.url, feed.getEntries().size());
         return new FetchResult(feed, newEtag, newLastModified);
     }

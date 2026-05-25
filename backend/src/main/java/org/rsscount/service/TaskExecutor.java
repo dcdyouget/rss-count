@@ -368,7 +368,7 @@ public class TaskExecutor {
                 if (config.has("groupIds") && config.get("groupIds").isArray()) {
                     for (var node : config.get("groupIds")) {
                         Long groupId = node.asLong();
-                        List<RssSourceGroup> mappings = RssSourceGroup.find("groupId", groupId).list();
+                        List<RssSourceGroup> mappings = RssSourceGroup.find("rssGroupId", groupId).list();
                         for (RssSourceGroup mapping : mappings) {
                             sourceIds.add(mapping.rssSourceId);
                         }
