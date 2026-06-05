@@ -8,7 +8,10 @@ import jakarta.persistence.*;
  * 联合主键由 rssSourceId 和 rssGroupId 组成。
  */
 @Entity
-@Table(name = "rss_source_group")
+@Table(name = "rss_source_group", indexes = {
+    @Index(name = "idx_rsg_group_id", columnList = "rss_group_id"),
+    @Index(name = "idx_rsg_source_id", columnList = "rss_source_id")
+})
 @IdClass(RssSourceGroupId.class)
 public class RssSourceGroup extends PanacheEntityBase {
 

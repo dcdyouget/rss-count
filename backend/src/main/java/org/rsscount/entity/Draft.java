@@ -9,7 +9,9 @@ import java.time.LocalDateTime;
  * 每份稿件包含生成参数（提示词、温度、风格）和版本历史。
  */
 @Entity
-@Table(name = "draft")
+@Table(name = "draft", indexes = {
+    @Index(name = "idx_draft_updated_at", columnList = "updated_at DESC")
+})
 public class Draft extends PanacheEntityBase {
 
     /** 主键 ID，自增 */

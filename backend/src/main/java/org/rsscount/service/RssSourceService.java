@@ -475,13 +475,22 @@ public class RssSourceService {
             java.net.URL rssUrl = new java.net.URL(url);
             javax.xml.parsers.DocumentBuilderFactory factory =
                 javax.xml.parsers.DocumentBuilderFactory.newInstance();
+            // XXE protection
+            factory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
             factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+            factory.setXIncludeAware(false);
+            factory.setExpandEntityReferences(false);
             javax.xml.parsers.DocumentBuilder builder = factory.newDocumentBuilder();
-            org.w3c.dom.Document doc = builder.parse(rssUrl.openStream());
-            org.w3c.dom.NodeList titles = doc.getElementsByTagName("title");
-            if (titles.getLength() > 0) {
-                org.w3c.dom.Node channelTitle = titles.item(0);
-                return channelTitle.getTextContent().trim();
+            try (java.io.InputStream is = rssUrl.openStream()) {
+                org.w3c.dom.Document doc = builder.parse(is);
+                org.w3c.dom.NodeList titles = doc.getElementsByTagName("title");
+                if (titles.getLength() > 0) {
+                    org.w3c.dom.Node channelTitle = titles.item(0);
+                    return channelTitle.getTextContent().trim();
+                }
             }
         } catch (Exception e) {
             Log.debugf("Failed to fetch RSS title from %s: %s", url, e.getMessage());
@@ -495,19 +504,29 @@ public class RssSourceService {
 
         javax.xml.parsers.DocumentBuilderFactory factory =
             javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        // XXE protection
+        factory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
         factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        factory.setXIncludeAware(false);
+        factory.setExpandEntityReferences(false);
         javax.xml.parsers.DocumentBuilder builder = factory.newDocumentBuilder();
         org.w3c.dom.Document doc = builder.parse(inputStream);
 
         org.w3c.dom.NodeList bodyNodes = doc.getElementsByTagName("body");
         if (bodyNodes.getLength() > 0) {
-            parseOutlines(bodyNodes.item(0), outlines);
+            parseOutlines(bodyNodes.item(0), outlines, 0);
         }
         return outlines;
     }
 
     /** 递归解析 outline 节点，区分分组（含子节点）和源（有 xmlUrl） */
-    private void parseOutlines(org.w3c.dom.Node parent, List<OpmlParser.Outline> result) {
+    private void parseOutlines(org.w3c.dom.Node parent, List<OpmlParser.Outline> result, int depth) {
+        if (depth > 100) {
+            throw new RuntimeException("OPML outline nesting too deep (max 100)");
+        }
         org.w3c.dom.NodeList children = parent.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             org.w3c.dom.Node child = children.item(i);
@@ -528,7 +547,7 @@ public class RssSourceService {
                 } else {
                     // Group outline (may have children)
                     List<OpmlParser.Outline> childOutlines = new ArrayList<>();
-                    parseOutlines(child, childOutlines);
+                    parseOutlines(child, childOutlines, depth + 1);
                     result.add(new OpmlParser.Outline(
                         name != null ? name : "未命名分组", null, childOutlines));
                 }
@@ -566,6 +585,8 @@ public class RssSourceService {
     /** XML 转义：替换 &、"、<、>、' 为对应的实体引用 */
     private String escapeXml(String s) {
         if (s == null) return "";
+        // Strip XML 1.0 invalid control characters (except tab, CR, LF)
+        s = s.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]", "");
         return s.replace("&", "&amp;")
                 .replace("\"", "&quot;")
                 .replace("<", "&lt;")

@@ -39,6 +39,47 @@ public class TimeNormalizer {
     private static final Pattern YESTERDAY = Pattern.compile("昨天");
     private static final Pattern DAY_BEFORE_YESTERDAY = Pattern.compile("前天");
 
+    // ---- Formatters ----
+    private static final DateTimeFormatter RFC822_NUMERIC = new DateTimeFormatterBuilder()
+        .appendPattern("[EEE, ]d MMM yyyy HH:mm:ss")
+        .appendOffset("+HHMM", "+0000")
+        .toFormatter(Locale.ENGLISH);
+
+    private static final DateTimeFormatter RFC822_TEXT = new DateTimeFormatterBuilder()
+        .appendPattern("[EEE, ]d MMM yyyy HH:mm:ss z")
+        .toFormatter(Locale.ENGLISH);
+
+    private static final DateTimeFormatter ISO_WITH_OFFSET = new DateTimeFormatterBuilder()
+        .append(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+        .appendPattern("[XXX][XX][X]")
+        .toFormatter();
+
+    private static final DateTimeFormatter ISO_NO_TZ = new DateTimeFormatterBuilder()
+        .appendPattern("yyyy-MM-dd")
+        .optionalStart()
+        .appendLiteral(" ")
+        .appendPattern("HH:mm:ss")
+        .optionalStart()
+        .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
+        .optionalEnd()
+        .optionalEnd()
+        .parseDefaulting(ChronoField.HOUR_OF_DAY, 0)
+        .parseDefaulting(ChronoField.MINUTE_OF_HOUR, 0)
+        .parseDefaulting(ChronoField.SECOND_OF_MINUTE, 0)
+        .toFormatter(Locale.ENGLISH);
+
+    private static final DateTimeFormatter[] CHINESE_DT_FORMATTERS = {
+        DateTimeFormatter.ofPattern("yyyy年M月d日 HH:mm:ss", Locale.CHINA),
+        DateTimeFormatter.ofPattern("yyyy年M月d日 HH:mm", Locale.CHINA),
+        DateTimeFormatter.ofPattern("yyyy年MM月dd日 HH:mm:ss", Locale.CHINA),
+        DateTimeFormatter.ofPattern("yyyy年MM月dd日 HH:mm", Locale.CHINA),
+    };
+
+    private static final DateTimeFormatter[] CHINESE_DATE_FORMATTERS = {
+        DateTimeFormatter.ofPattern("yyyy年M月d日", Locale.CHINA),
+        DateTimeFormatter.ofPattern("yyyy年MM月dd日", Locale.CHINA),
+    };
+
     private TimeNormalizer() {
     }
 
@@ -117,11 +158,7 @@ public class TimeNormalizer {
 
             // Try custom RFC 822 with numeric offset like "+0800"
             try {
-                DateTimeFormatter rfc822Numeric = new DateTimeFormatterBuilder()
-                    .appendPattern("[EEE, ]d MMM yyyy HH:mm:ss")
-                    .appendOffset("+HHMM", "+0000")
-                    .toFormatter(Locale.ENGLISH);
-                java.time.OffsetDateTime odt = java.time.OffsetDateTime.parse(cleaned, rfc822Numeric);
+                java.time.OffsetDateTime odt = java.time.OffsetDateTime.parse(cleaned, RFC822_NUMERIC);
                 return odt.atZoneSameInstant(ZONE_UTC8).toLocalDateTime();
             } catch (DateTimeParseException ignored) {
                 // fall through
@@ -129,10 +166,7 @@ public class TimeNormalizer {
 
             // Try with textual timezone like "CST", "EST"
             try {
-                DateTimeFormatter rfc822Text = new DateTimeFormatterBuilder()
-                    .appendPattern("[EEE, ]d MMM yyyy HH:mm:ss z")
-                    .toFormatter(Locale.ENGLISH);
-                ZonedDateTime zdt = ZonedDateTime.parse(cleaned, rfc822Text);
+                ZonedDateTime zdt = ZonedDateTime.parse(cleaned, RFC822_TEXT);
                 return zdt.withZoneSameInstant(ZONE_UTC8).toLocalDateTime();
             } catch (DateTimeParseException ignored) {
                 // fall through
@@ -147,12 +181,7 @@ public class TimeNormalizer {
     // ---- ISO 8601 带时区偏移量 ----
     private static LocalDateTime tryParseIsoWithOffset(String input) {
         try {
-            // Try with offset like "+08:00"
-            DateTimeFormatter isoOffset = new DateTimeFormatterBuilder()
-                .append(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                .appendPattern("[XXX][XX][X]")
-                .toFormatter();
-            ZonedDateTime zdt = ZonedDateTime.parse(input, isoOffset);
+            ZonedDateTime zdt = ZonedDateTime.parse(input, ISO_WITH_OFFSET);
             return zdt.withZoneSameInstant(ZONE_UTC8).toLocalDateTime();
         } catch (DateTimeParseException e) {
             return null;
@@ -177,25 +206,19 @@ public class TimeNormalizer {
 
     // ---- 中文日期 ----
     private static LocalDateTime tryParseChineseDate(String input) {
-        // Try various Chinese date patterns
-        String[][] patterns = {
-            {"yyyy年M月d日 HH:mm:ss", "datetime"},
-            {"yyyy年M月d日 HH:mm", "datetime"},
-            {"yyyy年MM月dd日 HH:mm:ss", "datetime"},
-            {"yyyy年MM月dd日 HH:mm", "datetime"},
-            {"yyyy年M月d日", "date"},
-            {"yyyy年MM月dd日", "date"},
-        };
-
-        for (String[] entry : patterns) {
+        // Try datetime patterns first
+        for (DateTimeFormatter fmt : CHINESE_DT_FORMATTERS) {
             try {
-                DateTimeFormatter fmt = DateTimeFormatter.ofPattern(entry[0], Locale.CHINA);
-                if ("datetime".equals(entry[1])) {
-                    return LocalDateTime.parse(input, fmt);
-                } else {
-                    LocalDate ld = LocalDate.parse(input, fmt);
-                    return LocalDateTime.of(ld, LocalTime.MIDNIGHT);
-                }
+                return LocalDateTime.parse(input, fmt);
+            } catch (DateTimeParseException e) {
+                // try next
+            }
+        }
+        // Then date-only patterns
+        for (DateTimeFormatter fmt : CHINESE_DATE_FORMATTERS) {
+            try {
+                LocalDate ld = LocalDate.parse(input, fmt);
+                return LocalDateTime.of(ld, LocalTime.MIDNIGHT);
             } catch (DateTimeParseException e) {
                 // try next
             }
@@ -215,13 +238,7 @@ public class TimeNormalizer {
             // DateTime without timezone: yyyy-MM-dd HH:mm:ss or yyyy-MM-ddTHH:mm:ss
             // Replace T separator with space for unified parsing
             String normalized = input.replace('T', ' ');
-            DateTimeFormatter fmt = new DateTimeFormatterBuilder()
-                .appendPattern("yyyy-MM-dd[ HH:mm:ss[.SSS]]")
-                .parseDefaulting(ChronoField.HOUR_OF_DAY, 0)
-                .parseDefaulting(ChronoField.MINUTE_OF_HOUR, 0)
-                .parseDefaulting(ChronoField.SECOND_OF_MINUTE, 0)
-                .toFormatter(Locale.ENGLISH);
-            return LocalDateTime.parse(normalized, fmt);
+            return LocalDateTime.parse(normalized, ISO_NO_TZ);
         } catch (DateTimeParseException e) {
             return null;
         }
@@ -232,38 +249,38 @@ public class TimeNormalizer {
         LocalDateTime now = LocalDateTime.now(ZONE_UTC8);
 
         // "刚刚"
-        if (JUST_NOW.matcher(input).matches()) {
+        if (JUST_NOW.matcher(input).find()) {
             return now;
         }
 
         // "N分钟前"
         Matcher minMatcher = RELATIVE_MINUTE.matcher(input);
-        if (minMatcher.matches()) {
+        if (minMatcher.find()) {
             int minutes = Integer.parseInt(minMatcher.group(1));
             return now.minusMinutes(minutes);
         }
 
         // "N小时前"
         Matcher hourMatcher = RELATIVE_HOUR.matcher(input);
-        if (hourMatcher.matches()) {
+        if (hourMatcher.find()) {
             int hours = Integer.parseInt(hourMatcher.group(1));
             return now.minusHours(hours);
         }
 
         // "N天前"
         Matcher dayMatcher = RELATIVE_DAY.matcher(input);
-        if (dayMatcher.matches()) {
+        if (dayMatcher.find()) {
             int days = Integer.parseInt(dayMatcher.group(1));
             return now.minusDays(days);
         }
 
         // "昨天"
-        if (YESTERDAY.matcher(input).matches()) {
+        if (YESTERDAY.matcher(input).find()) {
             return now.minusDays(1).with(LocalTime.MIDNIGHT);
         }
 
         // "前天"
-        if (DAY_BEFORE_YESTERDAY.matcher(input).matches()) {
+        if (DAY_BEFORE_YESTERDAY.matcher(input).find()) {
             return now.minusDays(2).with(LocalTime.MIDNIGHT);
         }
 

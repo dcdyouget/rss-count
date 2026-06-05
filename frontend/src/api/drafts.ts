@@ -18,6 +18,7 @@ export function useDraftList(params: DraftListParams = {}) {
       client
         .get<{ total: number; items: DraftListSummary[] }>('/drafts', { params })
         .then((r) => r.data),
+    staleTime: 10 * 1000,
   });
 }
 
@@ -84,6 +85,7 @@ export function useMaterialPile(params: { page?: number; size?: number } = {}) {
       client
         .get<{ total: number; items: MaterialPileItem[] }>('/news/material-pile', { params })
         .then((r) => r.data),
+    staleTime: 0,
   });
 }
 

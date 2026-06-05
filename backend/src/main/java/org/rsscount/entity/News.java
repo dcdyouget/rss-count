@@ -13,7 +13,9 @@ import java.time.LocalDateTime;
     @Index(name = "idx_news_report_id", columnList = "report_id"),
     @Index(name = "idx_news_title", columnList = "title"),
     @Index(name = "idx_news_sim_hash", columnList = "sim_hash"),
-    @Index(name = "idx_news_created_at", columnList = "created_at DESC")
+    @Index(name = "idx_news_created_at", columnList = "created_at DESC"),
+    @Index(name = "idx_news_material_pile", columnList = "in_material_pile,material_pile_added_at DESC"),
+    @Index(name = "idx_news_is_read_created", columnList = "is_read,created_at DESC")
 })
 public class News extends PanacheEntityBase {
 

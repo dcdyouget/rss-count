@@ -130,7 +130,6 @@ public class AiService {
         }
 
         @Override
-        @Transactional
         public String generateSummary(String content, int maxLength) {
             try {
                 Settings settings = Settings.getOrCreate();
@@ -171,7 +170,6 @@ public class AiService {
         }
 
         @Override
-        @Transactional
         public List<String> extractTags(String content) {
             try {
                 Settings settings = Settings.getOrCreate();
@@ -251,7 +249,6 @@ public class AiService {
         }
 
         @Override
-        @Transactional
         public String generateDraft(String prompt, double temperature) {
             try {
                 Settings settings = Settings.getOrCreate();

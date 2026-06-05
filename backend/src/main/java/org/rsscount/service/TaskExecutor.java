@@ -104,7 +104,11 @@ public class TaskExecutor {
      */
     public void execute(Task task) {
         Long taskId = task.id;
-        runningTasks.put(taskId, true);
+        // Prevent double-execution: if already running, skip
+        if (runningTasks.putIfAbsent(taskId, true) != null) {
+            Log.warnf("TaskExecutor: Task %d is already running, skipping duplicate execute()", taskId);
+            return;
+        }
 
         Thread.startVirtualThread(() -> {
             try {
@@ -293,8 +297,8 @@ public class TaskExecutor {
                                     persistAndFormat(news, report);
                                     formattedCount.incrementAndGet();
                                 } catch (Exception e) {
-                                    Log.debugf("Task %d: Format failed for news: %s", taskId, e.getMessage());
-                                    formattedCount.incrementAndGet();
+                                    Log.warnf("Task %d: Format failed for news: %s", taskId, e.getMessage());
+                                    // Do NOT increment formattedCount on failure
                                 }
                             }, formatPool);
                             formatFutures.add(future);

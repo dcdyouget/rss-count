@@ -264,7 +264,16 @@ export default function TaskDetail() {
               <Title level={4} style={{ marginBottom: token.marginMD }}>
                 获取的新闻 ({task.news.length})
               </Title>
-              <NewsCardGrid news={task.news} />
+              <NewsCardGrid
+                news={task.news}
+                onNewsClick={() => {
+                  if (task.reportId) {
+                    navigate(`/reports/${task.reportId}`);
+                  } else {
+                    navigate(`/news`);
+                  }
+                }}
+              />
             </div>
           )}
 

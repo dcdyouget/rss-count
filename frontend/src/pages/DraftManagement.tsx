@@ -83,7 +83,9 @@ export default function DraftManagement() {
         (draft.news ?? []).map((n) => ({
           id: n.id,
           title: n.title,
-          materialPileAddedAt: n.publishedAt,
+          // Backend NewsSummary does not include materialPileAddedAt yet;
+          // use a sensible default until the API is updated
+          materialPileAddedAt: '',
         })),
       );
     }
@@ -147,6 +149,7 @@ export default function DraftManagement() {
     }
     if (newDraftNewsIds.length === 0) {
       message.warning('请选择至少一条新闻素材');
+      return;
     }
     try {
       const result = await createDraft.mutateAsync({
@@ -164,7 +167,7 @@ export default function DraftManagement() {
       setNewDraftNewsIds([]);
       message.success('稿件创建成功');
     } catch {
-      // handled by interceptor
+      message.error('稿件创建失败，请重试');
     }
   };
 
@@ -182,7 +185,7 @@ export default function DraftManagement() {
       setMaterialNews([]);
       message.success('稿件已删除');
     } catch {
-      // handled by interceptor
+      message.error('稿件删除失败，请重试');
     }
   };
 
@@ -199,7 +202,7 @@ export default function DraftManagement() {
       queryClient.invalidateQueries({ queryKey: ['drafts', selectedDraftId, 'versions'] });
       message.success('稿件生成成功');
     } catch {
-      // handled by interceptor
+      message.error('稿件生成失败，请检查 AI 设置');
     }
   };
 
@@ -247,7 +250,7 @@ export default function DraftManagement() {
       });
       setMaterialNews((prev) => prev.filter((n) => n.id !== newsId));
     } catch {
-      // handled by interceptor
+      message.error('操作失败，请重试');
     }
   };
 
@@ -260,7 +263,7 @@ export default function DraftManagement() {
       setNewDraftNewsIds((prev) => prev.filter((id) => id !== newsId));
       message.success('已从素材堆移除');
     } catch {
-      // handled by interceptor
+      message.error('移除素材失败，请重试');
     }
   };
 

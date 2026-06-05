@@ -40,6 +40,7 @@ export function useSSE(
   const reconnectStartRef = useRef<number>(0);
   const isMountedRef = useRef(true);
   const isCompleteRef = useRef(false);
+  const userDisconnectedRef = useRef(false);
 
   const addLogs = useCallback(
     (newLogs: string[]) => {
@@ -67,6 +68,7 @@ export function useSSE(
 
   const close = useCallback(() => {
     closeConnection();
+    userDisconnectedRef.current = true;
     reconnectAttemptsRef.current = 0;
     reconnectStartRef.current = 0;
   }, [closeConnection]);
@@ -129,6 +131,14 @@ export function useSSE(
         isCompleteRef.current = true;
       }
       es.close();
+
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      reconnectAttemptsRef.current = 0;
+      reconnectStartRef.current = 0;
+
       setIsConnected(false);
     });
 
@@ -171,7 +181,7 @@ export function useSSE(
             `连接断开，正在重连... (${attempt}/${maxReconnectAttempts})`,
           ]);
           reconnectTimerRef.current = setTimeout(() => {
-            if (isMountedRef.current) {
+            if (isMountedRef.current && !userDisconnectedRef.current) {
               connect();
             }
           }, delay);
@@ -184,7 +194,7 @@ export function useSSE(
         reconnectAttemptsRef.current = 1;
         addLogs(['连接断开，正在重连... (1/3)']);
         reconnectTimerRef.current = setTimeout(() => {
-          if (isMountedRef.current) {
+          if (isMountedRef.current && !userDisconnectedRef.current) {
             connect();
           }
         }, 2000);

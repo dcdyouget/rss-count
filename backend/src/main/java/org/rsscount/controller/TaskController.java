@@ -292,21 +292,13 @@ public class TaskController {
         task.startedAt = LocalDateTime.now();
         task.persist();
 
-        // Create Report
-        Report report = new Report();
-        report.task = task;
-        report.name = request.name.replace("任务", "报告");
-        report.timeRangeStart = task.timeRangeStart;
-        report.timeRangeEnd = task.timeRangeEnd;
-        report.persist();
-
-        // Async execution
+        // Async execution (creates Report internally via findOrCreateReport)
         taskExecutor.execute(task);
 
         Log.infof("Task %d created and started: %s", task.id, task.name);
 
         return Response.status(Response.Status.CREATED)
-            .entity(new CreateTaskResponse(task.id, report.id))
+            .entity(new CreateTaskResponse(task.id, null))
             .build();
     }
 
@@ -324,10 +316,24 @@ public class TaskController {
             .format(DateTimeFormatter.ofPattern("yyyy年M月d日"));
 
         // Find the latest completed task today to determine the sequence number
-        LocalDateTime dayStart = LocalDateTime.now().withHour(0).withMinute(0).withSecond(0);
-        long countToday = Task.count("createdAt >= ?1", dayStart);
+        // Find the max sequence number for today's tasks to avoid duplicates
+        String todayPrefix = today + "-第";
+        Task latestToday = Task.find("name like ?1 order by createdAt desc", todayPrefix + "%").firstResult();
+        int nextSeq = 1;
+        if (latestToday != null) {
+            String n = latestToday.name;
+            int startIdx = n.indexOf(todayPrefix) + todayPrefix.length();
+            int endIdx = n.indexOf("次", startIdx);
+            if (endIdx > startIdx) {
+                try {
+                    nextSeq = Integer.parseInt(n.substring(startIdx, endIdx)) + 1;
+                } catch (NumberFormatException e) {
+                    nextSeq = 2;
+                }
+            }
+        }
 
-        return today + "-第" + (countToday + 1) + "次任务";
+        return today + "-第" + nextSeq + "次任务";
     }
 
     // ── 9. GET /tasks/last-end-time ────────────────────────
@@ -372,24 +378,9 @@ public class TaskController {
             return;
         }
 
-        // If task is already completed or failed, send the terminal event directly
-        if (Task.STATUS_COMPLETED.equals(task.status)) {
-            Report report = Report.find("task.id", task.id).firstResult();
-            try (jakarta.ws.rs.sse.SseEventSink s = eventSink) {
-                s.send(sse.newEvent("complete",
-                    "{\"reportId\":" + (report != null ? report.id : null) + "}"));
-            } catch (Exception ignored) {}
-            return;
-        }
-        if (Task.STATUS_FAILED.equals(task.status)) {
-            try (jakarta.ws.rs.sse.SseEventSink s = eventSink) {
-                s.send(sse.newEvent("error",
-                    "{\"message\":\"" + (task.errorMessage != null ? task.errorMessage : "") + "\"}"));
-            } catch (Exception ignored) {}
-            return;
-        }
-
-        // Register progress callback
+        // Register progress callback FIRST, before checking status, to avoid
+        // a TOCTOU race where the task completes between the status check and
+        // the subscribe call.
         java.util.function.Consumer<TaskExecutor.SseProgressEvent> callback = event -> {
             try {
                 String jsonData;
@@ -407,15 +398,32 @@ public class TaskController {
 
         taskExecutor.subscribe(id, callback);
 
-        // Keep connection alive until client disconnects
-        while (!eventSink.isClosed()) {
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                break;
+        try {
+            // Re-check task status from DB (after subscribing) to avoid TOCTOU race
+            Task freshTask = Task.findById(id);
+            if (Task.STATUS_COMPLETED.equals(freshTask.status)) {
+                Report report = Report.find("task.id", freshTask.id).firstResult();
+                callback.accept(new TaskExecutor.SseProgressEvent("complete",
+                    "{\"reportId\":" + (report != null ? report.id : null) + "}"));
+                return;
             }
+            if (Task.STATUS_FAILED.equals(freshTask.status)) {
+                callback.accept(new TaskExecutor.SseProgressEvent("error",
+                    "{\"message\":\"" + (freshTask.errorMessage != null ? freshTask.errorMessage : "") + "\"}"));
+                return;
+            }
+
+            // Keep connection alive until client disconnects
+            while (!eventSink.isClosed()) {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        } finally {
+            taskExecutor.unsubscribe(id, callback);
         }
-        taskExecutor.unsubscribe(id, callback);
     }
 
     // ── Private helpers ────────────────────────────────────

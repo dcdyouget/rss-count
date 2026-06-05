@@ -1,10 +1,38 @@
 version: '3.8'
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rsscount-pg
+    environment:
+      POSTGRES_USER: rsscount
+      POSTGRES_PASSWORD: rsscount123
+      POSTGRES_DB: rsscount
+    ports:
+      - "5432:5432"
+    volumes:
+      - /data/rss-count/database:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rsscount"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   rss-count:
     image: rss-count:latest
     container_name: rss-count
     ports:
       - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: rsscount
+      DB_USER: rsscount
+      DB_PASSWORD: rsscount123
+      QUARKUS_PROFILE: prod
     volumes:
-      - /root/data:/app/data
+      - /data/rss-count/app-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped

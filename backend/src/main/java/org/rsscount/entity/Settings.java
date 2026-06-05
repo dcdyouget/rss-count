@@ -44,6 +44,13 @@ public class Settings extends PanacheEntityBase {
     @Column(name = "updated_at", nullable = false)
     public LocalDateTime updatedAt = LocalDateTime.now();
 
+    /** 全局单例锁 */
+    private static final Object LOCK = new Object();
+
+    /** 单例标识列，始终为 1，由唯一约束强制全表只有一行 */
+    @Column(name = "singleton", nullable = false, unique = true)
+    private int singleton = 1;
+
     /**
      * 获取或创建全局唯一的设置行。
      * 若数据库为空则创建新实例并持久化。
@@ -51,8 +58,13 @@ public class Settings extends PanacheEntityBase {
     public static Settings getOrCreate() {
         Settings settings = (Settings) findAll().firstResult();
         if (settings == null) {
-            settings = new Settings();
-            settings.persist();
+            synchronized (LOCK) {
+                settings = (Settings) findAll().firstResult();
+                if (settings == null) {
+                    settings = new Settings();
+                    settings.persistAndFlush();
+                }
+            }
         }
         return settings;
     }

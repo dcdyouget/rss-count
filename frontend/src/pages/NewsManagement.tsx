@@ -25,7 +25,6 @@ export default function NewsManagement() {
     page: 1,
     size: 20,
   });
-  const [, setKeyword] = useState('');
   const [reportName, setReportName] = useState<string | undefined>();
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
 
@@ -48,7 +47,6 @@ export default function NewsManagement() {
   }, [reportsData]);
 
   const handleSearch = (value: string) => {
-    setKeyword(value);
     setParams((prev) => ({
       ...prev,
       keyword: value || undefined,
@@ -75,6 +73,8 @@ export default function NewsManagement() {
     ).then(() => {
       message.success(`已将 ${selectedRowKeys.length} 条新闻加入素材堆`);
       setSelectedRowKeys([]);
+    }).catch(() => {
+      message.error('加入素材堆失败，请重试');
     });
   };
 
@@ -188,10 +188,13 @@ export default function NewsManagement() {
             showSidebar
             onMarkRead={(nid) => markRead.mutate(nid)}
             onAddToMaterialPile={(nid) =>
-              batchMut.mutate({
-                newsIds: [nid],
-                action: 'ADD',
-              })
+              batchMut.mutate(
+                { newsIds: [nid], action: 'ADD' },
+                {
+                  onSuccess: () => message.success('已加入素材堆'),
+                  onError: () => message.error('加入素材堆失败'),
+                },
+              )
             }
           />
         ) : (

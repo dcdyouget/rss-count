@@ -6,6 +6,7 @@ export function useSettings() {
   return useQuery({
     queryKey: ['settings'],
     queryFn: () => client.get<Settings>('/settings').then((r) => r.data),
+    staleTime: 60 * 1000,
   });
 }
 

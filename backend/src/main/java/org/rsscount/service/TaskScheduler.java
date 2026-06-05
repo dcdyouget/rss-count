@@ -27,12 +27,24 @@ public class TaskScheduler {
     @Inject
     TaskExecutor taskExecutor;
 
+    /** Guard to skip the first scheduled invocation after startup */
+    private volatile boolean startupSkipped = false;
+
     /**
      * Cron expression evaluated every hour. Inside the method, we check
      * whether the configured interval has elapsed since the last task.
+     * First invocation after startup is skipped to avoid racing with
+     * resumeRunningTasks and to prevent creating duplicate tasks.
      */
     @Scheduled(every = "1h")
     public void scheduledTaskCreation() {
+        // Skip the very first tick after startup — avoid racing with resumeRunningTasks
+        if (!startupSkipped) {
+            startupSkipped = true;
+            Log.info("TaskScheduler: Skipping first tick after startup");
+            return;
+        }
+
         try {
             Settings settings = QuarkusTransaction.call(Settings::getOrCreate);
 
@@ -91,13 +103,26 @@ public class TaskScheduler {
                 sourceType = Task.SOURCE_GROUP;
             }
 
-            // Generate task name
+            // Generate task name — use max sequence number for today, not count
             String todayStr = LocalDateTime.now()
                 .format(DateTimeFormatter.ofPattern("yyyy年M月d日"));
-            long countToday = QuarkusTransaction.call(() ->
-                Task.count("createdAt >= ?1",
-                    LocalDateTime.now().withHour(0).withMinute(0).withSecond(0)));
-            String taskName = todayStr + "-第" + (countToday + 1) + "次自动任务";
+            String todayPrefix = todayStr + "-第";
+            Task latestToday = QuarkusTransaction.call(() ->
+                Task.find("name like ?1 order by createdAt desc", todayPrefix + "%").firstResult());
+            int nextSeq = 1;
+            if (latestToday != null) {
+                String n = latestToday.name;
+                int startIdx = n.indexOf(todayPrefix) + todayPrefix.length();
+                int endIdx = n.indexOf("次", startIdx);
+                if (endIdx > startIdx) {
+                    try {
+                        nextSeq = Integer.parseInt(n.substring(startIdx, endIdx)) + 1;
+                    } catch (NumberFormatException e) {
+                        nextSeq = 2;
+                    }
+                }
+            }
+            String taskName = todayStr + "-第" + nextSeq + "次自动任务";
 
             // Build sourceConfig for GROUP type
             String sourceConfig = null;

@@ -34,6 +34,7 @@ export function useAutoSave(
   const savedValueRef = useRef(value);
   const isMountedRef = useRef(true);
   const saveFnRef = useRef(saveFn);
+  const saveGenRef = useRef(0);
 
   // Keep saveFn ref up to date without triggering effect re-runs
   saveFnRef.current = saveFn;
@@ -43,9 +44,11 @@ export function useAutoSave(
 
   const performSave = useCallback(async (val: string) => {
     if (!isMountedRef.current) return;
+    const gen = ++saveGenRef.current;
     setIsSaving(true);
     try {
       await saveFnRef.current(val);
+      if (gen !== saveGenRef.current) return; // stale save, skip
       if (isMountedRef.current) {
         setLastSaved(new Date());
         savedValueRef.current = val;

@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "task", indexes = {
     @Index(name = "idx_task_status", columnList = "status"),
+    @Index(name = "idx_task_status_ended", columnList = "status,ended_at DESC"),
     @Index(name = "idx_task_created_at", columnList = "created_at DESC")
 })
 public class Task extends PanacheEntityBase {

@@ -16,6 +16,7 @@ export function useTaskList(params: TaskListParams = {}) {
     queryKey: ['tasks', 'list', params],
     queryFn: () =>
       client.get<PaginatedResponse<Task>>('/tasks', { params }).then((r) => r.data),
+    staleTime: 5 * 1000,
   });
 }
 

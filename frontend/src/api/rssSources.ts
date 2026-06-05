@@ -11,6 +11,7 @@ export function useRssSourceList(groupId?: number) {
       client
         .get<RssSource[]>('/rss-sources', { params: groupId ? { groupId } : {} })
         .then((r) => r.data),
+    staleTime: 30 * 1000,
   });
 }
 
@@ -91,7 +92,6 @@ export function useImportOpml() {
  * Export OPML file — optionally filter by group IDs.
  */
 export function useExportOpml() {
-  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (groupIds?: number[]) =>
       client.get('/rss-sources/export-opml', {
@@ -108,9 +108,6 @@ export function useExportOpml() {
         link.remove();
         window.URL.revokeObjectURL(url);
       }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['rss-sources'] });
-    },
   });
 }
 
@@ -120,6 +117,7 @@ export function useRssGroups() {
   return useQuery({
     queryKey: ['rss-groups', 'list'],
     queryFn: () => client.get<RssGroup[]>('/rss-groups').then((r) => r.data),
+    staleTime: 30 * 1000,
   });
 }
 

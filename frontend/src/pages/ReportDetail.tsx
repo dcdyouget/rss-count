@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Typography, Row, Col, Button, Skeleton,
-  Empty, theme, Flex, Input,
+  Empty, theme, Flex, Input, message,
 } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -50,7 +50,7 @@ export default function ReportDetail() {
 
   const hasMore = displayCount < filteredNews.length;
 
-  const savedNewsId = useRef<number>(0);
+  const scrollTargetRef = useRef<number | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   const handleSearchChange = (value: string) => {
@@ -59,23 +59,35 @@ export default function ReportDetail() {
   };
 
   const handleNewsClick = (newsId: number) => {
-    savedNewsId.current = newsId;
+    scrollTargetRef.current = newsId;
     setSelectedNewsId(newsId);
     setViewMode('detail');
   };
 
   const handleBack = () => {
-    const targetId = savedNewsId.current;
     setViewMode('grid');
     setSelectedNewsId(null);
-    // 延迟执行，等 grid 渲染完成后再滚动到目标位置
-    setTimeout(() => {
-      const el = document.getElementById(`news-card-${targetId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'instant', block: 'center' });
-      }
-    }, 150);
+    // scroll restoration is handled by the useEffect below,
+    // which waits for AnimatePresence exit+enter animations to finish
   };
+
+  // Restore scroll position when returning to grid view.
+  // AnimatePresence mode="wait" means exit (250ms) + enter (200ms) = ~450ms
+  // before the grid DOM elements are visible.
+  useEffect(() => {
+    if (viewMode === 'grid' && scrollTargetRef.current) {
+      const targetId = scrollTargetRef.current;
+      scrollTargetRef.current = null;
+      // Wait for animations to finish, then scroll to the previously clicked card
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`news-card-${targetId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'instant', block: 'center' });
+        }
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [viewMode]);
 
   // Infinite scroll via IntersectionObserver
   useEffect(() => {
@@ -196,10 +208,13 @@ export default function ReportDetail() {
               showSidebar
               onMarkRead={(nid) => markRead.mutate(nid)}
               onAddToMaterialPile={(nid) =>
-                batchPile.mutate({
-                  newsIds: [nid],
-                  action: 'ADD',
-                })
+                batchPile.mutate(
+                  { newsIds: [nid], action: 'ADD' },
+                  {
+                    onSuccess: () => message.success('已加入素材堆'),
+                    onError: () => message.error('加入素材堆失败'),
+                  },
+                )
               }
             />
           </motion.div>

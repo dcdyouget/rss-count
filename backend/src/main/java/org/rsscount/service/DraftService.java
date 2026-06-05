@@ -26,6 +26,9 @@ public class DraftService {
     @Inject
     AiService aiService;
 
+    @Inject
+    DraftService self;
+
     // ──────────────────────────────────────────────
     // DTOs
     // ──────────────────────────────────────────────
@@ -266,14 +269,13 @@ public class DraftService {
      * @return 生成的稿件内容和版本号
      * @throws WebApplicationException AI 服务不可用或返回空内容时抛出（502）
      */
-    @Transactional
     public GenerateResponse generate(Long draftId) {
         Draft draft = Draft.findById(draftId);
         if (draft == null) {
             throw new NotFoundException("稿件不存在");
         }
 
-        // Load associated news
+        // Load associated news (non-transactional read)
         List<DraftNews> associations = DraftNews.find("draftId", draftId).list();
         if (associations.isEmpty()) {
             throw new WebApplicationException("稿件未关联任何新闻素材", 400);
@@ -290,7 +292,7 @@ public class DraftService {
         // Build prompt
         String aiContent = buildDraftPrompt(draft, newsList);
 
-        // Call AI via AiService
+        // Call AI via AiService (outside any transaction -- this is a 120s HTTP call)
         String generatedContent;
         try {
             generatedContent = callAiDraftGeneration(draft, aiContent);
@@ -310,17 +312,25 @@ public class DraftService {
             );
         }
 
-        // Calculate next version
+        // Persist result in a new transaction (goes through the CDI proxy)
+        return self.saveGenerationResult(draftId, generatedContent);
+    }
+
+    @Transactional
+    public GenerateResponse saveGenerationResult(Long draftId, String generatedContent) {
+        Draft draft = Draft.findById(draftId);
+        if (draft == null) {
+            throw new NotFoundException("稿件不存在");
+        }
+
         int newVersion = draft.latestVersion + 1;
 
-        // Save DraftVersion
         DraftVersion version = new DraftVersion();
         version.draft = draft;
         version.version = newVersion;
         version.content = generatedContent;
         version.persist();
 
-        // Update Draft
         draft.latestVersion = newVersion;
         draft.latestContent = generatedContent;
         draft.persist();
@@ -434,8 +444,18 @@ public class DraftService {
         List<DraftNews> associations = DraftNews.find("draftId", draft.id).list();
         List<NewsBrief> newsBriefs = new ArrayList<>();
 
+        // Batch load all associated news in one query to avoid N+1
+        List<Long> newsIds = associations.stream().map(dn -> dn.newsId).collect(Collectors.toList());
+        Map<Long, News> newsMap = new HashMap<>();
+        if (!newsIds.isEmpty()) {
+            List<News> newsList = News.list("id in ?1", newsIds);
+            for (News n : newsList) {
+                newsMap.put(n.id, n);
+            }
+        }
+
         for (DraftNews dn : associations) {
-            News news = News.findById(dn.newsId);
+            News news = newsMap.get(dn.newsId);
             if (news != null) {
                 newsBriefs.add(new NewsBrief(
                     news.id, news.title, news.summary, news.sourceRssName

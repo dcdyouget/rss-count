@@ -14,6 +14,7 @@ export function useReportList(params: ReportListParams = {}) {
     queryKey: ['reports', 'list', params],
     queryFn: () =>
       client.get<PaginatedResponse<Report>>('/reports', { params }).then((r) => r.data),
+    staleTime: 30 * 1000,
   });
 }
 
@@ -27,6 +28,7 @@ export function useReport(id: number | null) {
     queryKey: ['reports', 'detail', id],
     queryFn: () => client.get<ReportWithNews>(`/reports/${id}`).then((r) => r.data),
     enabled: !!id,
+    staleTime: 30 * 1000,
   });
 }
 
@@ -52,6 +54,7 @@ export function useReportNews(
         .get<{ news: NewsSummary[] }>(`/reports/${reportId}`)
         .then((r) => r.data.news),
     enabled: !!reportId,
+    staleTime: 30 * 1000,
     select: (allNews) => {
       const total = allNews.length;
       const start = (page - 1) * size;
@@ -67,5 +70,6 @@ export function useReportNewsDetail(reportId: number | null, newsId: number | nu
     queryFn: () =>
       client.get<NewsDetail>(`/reports/${reportId}/news/${newsId}`).then((r) => r.data),
     enabled: !!reportId && !!newsId,
+    staleTime: 30 * 1000,
   });
 }

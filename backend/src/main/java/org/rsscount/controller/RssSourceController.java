@@ -119,8 +119,10 @@ public class RssSourceController {
                     .entity(Map.of("error", "请上传OPML文件")).build();
             }
             java.nio.file.Path uploadedPath = file.uploadedFile();
-            Map<String, Object> result = service.importOpml(
-                java.nio.file.Files.newInputStream(uploadedPath));
+            Map<String, Object> result;
+            try (InputStream is = java.nio.file.Files.newInputStream(uploadedPath)) {
+                result = service.importOpml(is);
+            }
             return Response.ok(result).build();
         } catch (Exception e) {
             return Response.status(Response.Status.BAD_REQUEST)

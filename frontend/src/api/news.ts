@@ -7,7 +7,6 @@ import type {
   PaginatedResponse,
   BatchMaterialPileRequest,
   BatchMaterialPileResponse,
-  MaterialPileItem,
 } from '@/types';
 
 export function useNewsList(params: NewsListParams = {}) {
@@ -15,6 +14,7 @@ export function useNewsList(params: NewsListParams = {}) {
     queryKey: ['news', 'list', params],
     queryFn: () =>
       client.get<PaginatedResponse<NewsItem>>('/news', { params }).then((r) => r.data),
+    staleTime: 10 * 1000,
   });
 }
 
@@ -57,12 +57,4 @@ export function useBatchMaterialPile() {
   });
 }
 
-export function useMaterialPile(params: { page?: number; size?: number } = {}) {
-  return useQuery({
-    queryKey: ['news', 'material-pile', params],
-    queryFn: () =>
-      client
-        .get<{ total: number; items: MaterialPileItem[] }>('/news/material-pile', { params })
-        .then((r) => r.data),
-  });
-}
+// useMaterialPile is defined in drafts.ts — use that version for consistent cache keys
