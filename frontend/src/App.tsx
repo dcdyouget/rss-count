@@ -16,15 +16,15 @@ const queryClient = new QueryClient({
 
 const themeConfig = {
   token: {
-    colorPrimary: '#2563EB',
-    colorSuccess: '#10B981',
-    colorWarning: '#F59E0B',
+    colorPrimary: '#316BFF',
+    colorSuccess: '#12A66A',
+    colorWarning: '#E98A15',
     colorError: '#EF4444',
-    colorInfo: '#2563EB',
-    colorTextBase: '#111827',
+    colorInfo: '#316BFF',
+    colorTextBase: '#17202A',
     colorBgBase: '#FFFFFF',
-    colorBgLayout: '#F8FAFC',
-    colorBorder: '#E5E7EB',
+    colorBgLayout: '#F4F6F8',
+    colorBorder: '#E7EAF0',
 
     borderRadius: 8,
     borderRadiusSM: 6,
@@ -48,8 +48,8 @@ const themeConfig = {
       paddingLG: 24,
     },
     Table: {
-      headerBg: '#F8FAFC',
-      borderColor: '#E5E7EB',
+      headerBg: '#F8F9FB',
+      borderColor: '#E7EAF0',
       borderRadius: 8,
     },
     Button: {

@@ -1,257 +1,360 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Table, Input, Select, Button, theme,
-  message, Space, Flex, Skeleton,
-} from 'antd';
-import {
-  ArrowLeftOutlined,
+  AppstoreOutlined,
+  CheckOutlined,
+  FileTextOutlined,
   InboxOutlined,
+  LeftOutlined,
+  LoadingOutlined,
+  RightOutlined,
+  SearchOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
-import type { TableRowSelection } from 'antd/es/table/interface';
+import { Button, Empty, Input, Skeleton, message } from 'antd';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import 'dayjs/locale/zh-cn';
 import NewsContent from '@/components/news/NewsContent';
-import { formatDateTime } from '@/utils/format';
-import { useNewsList, useBatchMaterialPile, useNewsDetail, useMarkRead } from '@/api/news';
-import { useReportList } from '@/api/reports';
-import type { NewsItem, NewsListParams } from '@/types';
+import { useNewsDetail, useNewsList, useMarkRead, useBatchMaterialPile } from '@/api/news';
+import { useRssGroups, useRssSourceList } from '@/api/rssSources';
+import type { NewsItem, NewsListParams, RssSource } from '@/types';
+import './NewsManagement.css';
+
+dayjs.extend(relativeTime);
+dayjs.locale('zh-cn');
+
+type WorkspaceFilter = 'all' | 'unread' | 'material';
+
+const PAGE_SIZE = 30;
+
+function extractImageUrl(html: string | null) {
+  if (!html) return null;
+  const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+  return match?.[1] ?? null;
+}
+
+function sourceInitial(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return 'R';
+  const latin = trimmed.match(/[A-Za-z0-9]+/);
+  return latin ? latin[0].slice(0, 2).toUpperCase() : trimmed.slice(0, 1);
+}
 
 export default function NewsManagement() {
-  const { token } = theme.useToken();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialKeyword = searchParams.get('q') ?? '';
 
-  // View mode: list or detail (full-screen news view)
-  const [viewMode, setViewMode] = useState<'list' | 'detail'>('list');
+  const [page, setPage] = useState(1);
+  const [keyword, setKeyword] = useState(initialKeyword);
+  const [searchValue, setSearchValue] = useState(initialKeyword);
+  const [filter, setFilter] = useState<WorkspaceFilter>('all');
+  const [selectedSource, setSelectedSource] = useState<string | null>(null);
+  const [selectedNewsId, setSelectedNewsId] = useState<number | null>(null);
 
-  // Filters
-  const [params, setParams] = useState<NewsListParams>({
-    page: 1,
-    size: 20,
-  });
-  const [reportName, setReportName] = useState<string | undefined>();
-  const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
+  const params = useMemo<NewsListParams>(() => ({
+    page,
+    size: PAGE_SIZE,
+    keyword: keyword || undefined,
+    isRead: filter === 'unread' ? false : undefined,
+  }), [filter, keyword, page]);
 
-  // Data
-  const { data: newsData, isLoading } = useNewsList(params);
-  const { data: reportsData } = useReportList({ page: 1, size: 200 });
-  const batchMut = useBatchMaterialPile();
+  const { data: newsData, isLoading, isFetching } = useNewsList(params);
+  const { data: detailData, isLoading: detailLoading } = useNewsDetail(selectedNewsId);
+  const { data: groups = [] } = useRssGroups();
+  const { data: sources = [] } = useRssSourceList();
   const markRead = useMarkRead();
+  const batchMaterialPile = useBatchMaterialPile();
 
-  // Detail
-  const [detailId, setDetailId] = useState<number | null>(null);
-  const { data: detailData } = useNewsDetail(detailId);
+  const loadedNews = newsData?.items ?? [];
+  const visibleNews = useMemo(() => loadedNews.filter((item) => {
+    if (filter === 'material' && !item.inMaterialPile) return false;
+    if (selectedSource && item.sourceRssName !== selectedSource) return false;
+    return true;
+  }), [filter, loadedNews, selectedSource]);
 
-  // Report name options
-  const reportNameOptions = useMemo(() => {
-    if (!reportsData?.items) return [];
-    const names = new Set<string>();
-    reportsData.items.forEach((r: { name: string }) => names.add(r.name));
-    return Array.from(names).map((name) => ({ label: name, value: name }));
-  }, [reportsData]);
+  const unreadCount = loadedNews.filter((item) => !item.isRead).length;
+  const materialCount = loadedNews.filter((item) => item.inMaterialPile).length;
+  const totalPages = Math.max(1, Math.ceil((newsData?.total ?? 0) / PAGE_SIZE));
 
-  const handleSearch = (value: string) => {
-    setParams((prev) => ({
-      ...prev,
-      keyword: value || undefined,
-      page: 1,
-    }));
-  };
+  const sourceNewsCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    loadedNews.forEach((item) => {
+      counts.set(item.sourceRssName, (counts.get(item.sourceRssName) ?? 0) + 1);
+    });
+    return counts;
+  }, [loadedNews]);
 
-  const handleReportNameChange = (value?: string) => {
-    setReportName(value);
-    setParams((prev) => ({
-      ...prev,
-      reportName: value,
-      page: 1,
-    }));
-  };
+  const groupedSources = useMemo(() => {
+    const byGroup = groups.map((group) => ({
+      group,
+      sources: sources.filter((source) => source.groupIds.includes(group.id)),
+    })).filter((entry) => entry.sources.length > 0);
+    const ungrouped = sources.filter((source) => source.groupIds.length === 0);
+    return { byGroup, ungrouped };
+  }, [groups, sources]);
 
-  const handleBatchAdd = () => {
-    if (selectedRowKeys.length === 0) {
-      message.warning('请先选择新闻');
+  useEffect(() => {
+    if (visibleNews.length === 0) {
+      setSelectedNewsId(null);
       return;
     }
-    batchMut.mutateAsync(
-      { newsIds: selectedRowKeys, action: 'ADD' },
-    ).then(() => {
-      message.success(`已将 ${selectedRowKeys.length} 条新闻加入素材堆`);
-      setSelectedRowKeys([]);
-    }).catch(() => {
-      message.error('加入素材堆失败，请重试');
-    });
+    if (!selectedNewsId || !visibleNews.some((item) => item.id === selectedNewsId)) {
+      setSelectedNewsId(visibleNews[0].id);
+    }
+  }, [selectedNewsId, visibleNews]);
+
+  useEffect(() => {
+    const query = searchParams.get('q') ?? '';
+    setSearchValue(query);
+    setKeyword(query);
+    setPage(1);
+  }, [searchParams]);
+
+  const applySearch = (value: string) => {
+    const nextKeyword = value.trim();
+    setKeyword(nextKeyword);
+    setPage(1);
+    setSearchParams(nextKeyword ? { q: nextKeyword } : {});
   };
 
-  const handleBack = () => {
-    setViewMode('list');
-    setDetailId(null);
+  const selectWorkspaceFilter = (nextFilter: WorkspaceFilter) => {
+    setFilter(nextFilter);
+    setSelectedSource(null);
+    setPage(1);
   };
 
-  const handleViewDetail = (record: NewsItem) => {
-    setDetailId(record.id);
-    setViewMode('detail');
+  const handleSelectSource = (source: RssSource) => {
+    setSelectedSource((current) => current === source.name ? null : source.name);
+    setFilter('all');
+    setPage(1);
   };
 
-  const rowSelection: TableRowSelection<NewsItem> = {
-    selectedRowKeys,
-    onChange: (keys) => setSelectedRowKeys(keys as number[]),
+  const handleMarkRead = async (id: number) => {
+    try {
+      await markRead.mutateAsync(id);
+      message.success('已标记为已读');
+    } catch {
+      message.error('标记失败，请重试');
+    }
   };
 
-  const columns = [
-    {
-      title: '头图',
-      dataIndex: 'headerImageHtml',
-      key: 'headerImage',
-      width: 60,
-      render: (html: string | null) =>
-        html ? (
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: token.borderRadiusSM,
-              overflow: 'hidden',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-        ) : (
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              background: token.colorBgLayout,
-              borderRadius: token.borderRadiusSM,
-            }}
-          />
-        ),
-    },
-    {
-      title: '标题',
-      dataIndex: 'title',
-      key: 'title',
-      ellipsis: true,
-    },
-    {
-      title: '来源',
-      dataIndex: 'sourceRssName',
-      key: 'sourceRssName',
-      width: 150,
-      ellipsis: true,
-    },
-    {
-      title: '所属报告',
-      dataIndex: 'reportName',
-      key: 'reportName',
-      width: 200,
-      ellipsis: true,
-    },
-    {
-      title: '发布时间',
-      dataIndex: 'publishedAt',
-      key: 'publishedAt',
-      width: 170,
-      render: (t: string) => formatDateTime(t),
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      width: 100,
-      render: (_: unknown, record: NewsItem) => (
-        <Button
-          type="link"
-          size="small"
-          onClick={() => handleViewDetail(record)}
+  const handleMaterialPile = async (news: NewsItem) => {
+    try {
+      await batchMaterialPile.mutateAsync({
+        newsIds: [news.id],
+        action: news.inMaterialPile ? 'REMOVE' : 'ADD',
+      });
+      message.success(news.inMaterialPile ? '已移出素材堆' : '已加入素材堆');
+    } catch {
+      message.error('操作失败，请重试');
+    }
+  };
+
+  const selectedSummary = loadedNews.find((item) => item.id === selectedNewsId);
+
+  return (
+    <div className="news-workspace">
+      <aside className="news-sources" aria-label="资讯来源">
+        <div className="news-sidebar-section-title">工作区</div>
+        <button
+          className={`news-source-item ${filter === 'all' && !selectedSource ? 'is-active' : ''}`}
+          onClick={() => selectWorkspaceFilter('all')}
         >
-          查看详情
-        </Button>
-      ),
-    },
-  ];
-
-  // --- Full-screen detail view ---
-  if (viewMode === 'detail') {
-    return (
-      <div>
-        <Button
-          type="text"
-          icon={<ArrowLeftOutlined />}
-          onClick={handleBack}
-          style={{
-            marginBottom: token.marginMD,
-            color: token.colorTextSecondary,
-          }}
+          <span className="news-source-icon"><AppstoreOutlined /></span>
+          <span>全部资讯</span>
+          <span className="news-source-count">{newsData?.total ?? 0}</span>
+        </button>
+        <button
+          className={`news-source-item ${filter === 'unread' ? 'is-active' : ''}`}
+          onClick={() => selectWorkspaceFilter('unread')}
         >
-          返回列表
-        </Button>
-        {detailData ? (
+          <span className="news-source-icon"><CheckOutlined /></span>
+          <span>未读</span>
+          <span className="news-source-count">{unreadCount}</span>
+        </button>
+        <button
+          className={`news-source-item ${filter === 'material' ? 'is-active' : ''}`}
+          onClick={() => selectWorkspaceFilter('material')}
+        >
+          <span className="news-source-icon"><InboxOutlined /></span>
+          <span>素材堆</span>
+          <span className="news-source-count">{materialCount}</span>
+        </button>
+
+        <div className="news-source-groups">
+          {groupedSources.byGroup.map(({ group, sources: groupSources }) => (
+            <section key={group.id}>
+              <div className="news-source-group-title">
+                <span>{group.name}</span>
+                <span>{group.sourceCount}</span>
+              </div>
+              {groupSources.map((source) => (
+                <button
+                  key={source.id}
+                  className={`news-source-item ${selectedSource === source.name ? 'is-active' : ''}`}
+                  onClick={() => handleSelectSource(source)}
+                >
+                  <span className="news-source-icon news-source-icon--text">
+                    {sourceInitial(source.name)}
+                  </span>
+                  <span className="news-source-name">{source.name}</span>
+                  <span className="news-source-count">
+                    {sourceNewsCounts.get(source.name) ?? 0}
+                  </span>
+                </button>
+              ))}
+            </section>
+          ))}
+
+          {groupedSources.ungrouped.length > 0 && (
+            <section>
+              <div className="news-source-group-title">
+                <span>未分组</span>
+                <span>{groupedSources.ungrouped.length}</span>
+              </div>
+              {groupedSources.ungrouped.map((source) => (
+                <button
+                  key={source.id}
+                  className={`news-source-item ${selectedSource === source.name ? 'is-active' : ''}`}
+                  onClick={() => handleSelectSource(source)}
+                >
+                  <span className="news-source-icon news-source-icon--text">
+                    {sourceInitial(source.name)}
+                  </span>
+                  <span className="news-source-name">{source.name}</span>
+                  <span className="news-source-count">
+                    {sourceNewsCounts.get(source.name) ?? 0}
+                  </span>
+                </button>
+              ))}
+            </section>
+          )}
+        </div>
+
+        <div className="news-source-footer">
+          <Button block icon={<UnorderedListOutlined />} onClick={() => navigate('/rss-sources')}>
+            管理 RSS 源
+          </Button>
+        </div>
+      </aside>
+
+      <section className="news-feed">
+        <header className="news-feed-header">
+          <div className="news-feed-title-row">
+            <div>
+              <h2>{selectedSource ?? (filter === 'unread' ? '未读资讯' : filter === 'material' ? '素材堆' : '全部资讯')}</h2>
+              <span>{isFetching ? '正在更新…' : `共 ${newsData?.total ?? 0} 条`}</span>
+            </div>
+          </div>
+
+          <Input.Search
+            className="news-feed-search"
+            prefix={<SearchOutlined />}
+            placeholder="搜索当前资讯"
+            allowClear
+            value={searchValue}
+            onChange={(event) => setSearchValue(event.target.value)}
+            onSearch={applySearch}
+          />
+
+          <div className="news-feed-filters">
+            <button
+              className={filter === 'all' ? 'is-active' : ''}
+              onClick={() => selectWorkspaceFilter('all')}
+            >
+              全部
+            </button>
+            <button
+              className={filter === 'unread' ? 'is-active' : ''}
+              onClick={() => selectWorkspaceFilter('unread')}
+            >
+              未读
+            </button>
+            <button
+              className={filter === 'material' ? 'is-active' : ''}
+              onClick={() => selectWorkspaceFilter('material')}
+            >
+              已加入素材
+            </button>
+          </div>
+        </header>
+
+        <div className="news-feed-list">
+          {isLoading ? (
+            <div className="news-feed-loading">
+              <Skeleton active paragraph={{ rows: 10 }} />
+            </div>
+          ) : visibleNews.length === 0 ? (
+            <Empty description="当前筛选下暂无资讯" />
+          ) : (
+            visibleNews.map((news) => {
+              const imageUrl = extractImageUrl(news.headerImageHtml);
+              return (
+                <article
+                  key={news.id}
+                  className={`news-feed-item ${selectedNewsId === news.id ? 'is-selected' : ''} ${
+                    news.isRead ? 'is-read' : ''
+                  }`}
+                  onClick={() => setSelectedNewsId(news.id)}
+                >
+                  <div className="news-feed-item-content">
+                    <div className="news-feed-meta">
+                      {!news.isRead && <span className="news-unread-dot" />}
+                      <strong>{news.sourceRssName}</strong>
+                      <span>{dayjs(news.publishedAt).fromNow()}</span>
+                      {news.inMaterialPile && <span className="news-material-mark">素材</span>}
+                    </div>
+                    <h3>{news.title}</h3>
+                    <p>{news.summary || '暂无摘要'}</p>
+                  </div>
+                  <div className="news-feed-thumbnail">
+                    {imageUrl ? <img src={imageUrl} alt="" loading="lazy" /> : <FileTextOutlined />}
+                  </div>
+                </article>
+              );
+            })
+          )}
+        </div>
+
+        <footer className="news-feed-pagination">
+          <Button
+            type="text"
+            icon={<LeftOutlined />}
+            disabled={page <= 1}
+            onClick={() => setPage((value) => Math.max(1, value - 1))}
+          />
+          <span>{page} / {totalPages}</span>
+          <Button
+            type="text"
+            icon={<RightOutlined />}
+            disabled={page >= totalPages}
+            onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+          />
+        </footer>
+      </section>
+
+      <section className="news-reader">
+        {selectedNewsId && (detailLoading || !detailData) ? (
+          <div className="news-reader-loading">
+            <LoadingOutlined />
+            <span>正在加载正文</span>
+          </div>
+        ) : detailData ? (
           <NewsContent
             news={detailData}
-            showSidebar
-            onMarkRead={(nid) => markRead.mutate(nid)}
-            onAddToMaterialPile={(nid) =>
-              batchMut.mutate(
-                { newsIds: [nid], action: 'ADD' },
-                {
-                  onSuccess: () => message.success('已加入素材堆'),
-                  onError: () => message.error('加入素材堆失败'),
-                },
-              )
-            }
+            compact
+            onMarkRead={handleMarkRead}
+            onToggleMaterialPile={() => handleMaterialPile(detailData)}
           />
         ) : (
-          <Skeleton active paragraph={{ rows: 6 }} />
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={selectedSummary ? '正文暂不可用' : '选择一条资讯开始阅读'}
+          />
         )}
-      </div>
-    );
-  }
-
-  // --- List view ---
-  return (
-    <Flex vertical gap={token.marginLG}>
-      {/* Filter bar */}
-      <Flex justify="space-between" align="center" wrap="wrap" gap={token.marginSM}>
-        <Space>
-          <Input.Search
-            placeholder="搜索标题..."
-            allowClear
-            onSearch={handleSearch}
-            style={{ width: 240 }}
-          />
-          <Select
-            placeholder="报告筛选"
-            allowClear
-            value={reportName}
-            onChange={handleReportNameChange}
-            style={{ width: 180 }}
-            options={reportNameOptions}
-          />
-        </Space>
-        <Button
-          type="primary"
-          icon={<InboxOutlined />}
-          onClick={handleBatchAdd}
-          loading={batchMut.isPending}
-        >
-          加入素材堆{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
-        </Button>
-      </Flex>
-
-      {/* Table */}
-      <Table
-        rowSelection={rowSelection}
-        columns={columns}
-        dataSource={newsData?.items}
-        rowKey="id"
-        loading={isLoading}
-        pagination={{
-          current: params.page,
-          pageSize: params.size,
-          total: newsData?.total ?? 0,
-          onChange: (page, size) =>
-            setParams((prev) => ({ ...prev, page, size })),
-          showSizeChanger: true,
-          showTotal: (total: number) => `共 ${total} 条`,
-        }}
-      />
-    </Flex>
+      </section>
+    </div>
   );
 }

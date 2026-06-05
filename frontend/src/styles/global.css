@@ -15,19 +15,45 @@ body {
   height: 100%;
 }
 
+:root {
+  --rc-bg: #f4f6f8;
+  --rc-panel: #ffffff;
+  --rc-panel-soft: #fafbfc;
+  --rc-input-bg: #f8f9fb;
+  --rc-text: #17202a;
+  --rc-muted: #667085;
+  --rc-weak: #98a2b3;
+  --rc-border: #e7eaf0;
+  --rc-primary: #316bff;
+  --rc-primary-soft: #eef4ff;
+  --rc-success: #12a66a;
+}
+
+:root[data-theme="dark"] {
+  --rc-bg: #111820;
+  --rc-panel: #18212b;
+  --rc-panel-soft: #151e27;
+  --rc-input-bg: #202b36;
+  --rc-text: #edf2f7;
+  --rc-muted: #aab4c0;
+  --rc-weak: #7f8b99;
+  --rc-border: #2b3743;
+  --rc-primary-soft: #20345f;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   font-size: 14px;
   line-height: 1.6;
-  color: #111827;
-  background: #F8FAFC;
+  color: var(--rc-text);
+  background: var(--rc-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
-  height: 100%;
+  min-height: 100%;
 }
 
 a {
@@ -42,6 +68,13 @@ a:hover {
 img {
   max-width: 100%;
   height: auto;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
 }
 
 /* 滚动条美化 */
