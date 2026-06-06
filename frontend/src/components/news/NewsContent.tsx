@@ -1,178 +1,192 @@
 import React from 'react';
-import { Button, Tag } from 'antd';
+import { Typography, Tag, Button, Space, Flex, Divider, theme } from 'antd';
 import {
   ArrowLeftOutlined,
-  CheckOutlined,
-  ExportOutlined,
-  InboxOutlined,
   LinkOutlined,
+  CheckOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
-import dayjs from 'dayjs';
 import { CleanedHtmlRenderer } from '@/components/shared/CleanedHtmlRenderer';
 import type { NewsDetail } from '@/types';
-import './NewsContent.css';
+
+const { Title, Text } = Typography;
 
 export interface NewsContentProps {
   news: NewsDetail;
   backUrl?: string;
   showSidebar?: boolean;
-  compact?: boolean;
   onMarkRead?: (id: number) => void;
   onAddToMaterialPile?: (id: number) => void;
-  onToggleMaterialPile?: (id: number) => void;
 }
 
 const NewsContent: React.FC<NewsContentProps> = ({
   news,
   backUrl,
   showSidebar = true,
-  compact = false,
   onMarkRead,
   onAddToMaterialPile,
-  onToggleMaterialPile,
 }) => {
-  const materialAction = onToggleMaterialPile ?? onAddToMaterialPile;
-  const publishedAt = news.publishedAt
-    ? dayjs(news.publishedAt).format('YYYY年M月D日 HH:mm')
-    : null;
+  const { token } = theme.useToken();
 
   return (
-    <div className={`news-article-view ${compact ? 'news-article-view--compact' : ''}`}>
-      {compact && (
-        <div className="news-article-toolbar">
-          <div className={`news-read-status ${news.isRead ? 'is-read' : ''}`}>
-            <span />
-            {news.isRead ? '已读' : '未读'}
-          </div>
-
-          {onMarkRead && (
-            <Button
-              type="text"
-              icon={<CheckOutlined />}
-              onClick={() => onMarkRead(news.id)}
-              disabled={news.isRead}
-            >
-              {news.isRead ? '已标记' : '标记已读'}
-            </Button>
-          )}
-
-          {materialAction && (
-            <Button
-              type="text"
-              icon={<InboxOutlined />}
-              onClick={() => materialAction(news.id)}
-              disabled={!onToggleMaterialPile && news.inMaterialPile}
-            >
-              {onToggleMaterialPile && news.inMaterialPile
-                ? '移出素材堆'
-                : news.inMaterialPile
-                  ? '已在素材堆'
-                  : '加入素材堆'}
-            </Button>
-          )}
-
-          {news.sourceUrl && (
-            <Button
-              type="text"
-              icon={<ExportOutlined />}
-              href={news.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              原文
-            </Button>
-          )}
-        </div>
-      )}
-
-      <div className="news-article-scroll">
-        <article className="news-article">
-          {backUrl && (
-            <Link className="news-article-back" to={backUrl}>
-              <ArrowLeftOutlined />
-              返回
-            </Link>
-          )}
-
-          <div className="news-article-kicker">
-            {Array.isArray(news.tags) && news.tags.map((tag) => (
-              <Tag key={tag} bordered={false}>{tag}</Tag>
-            ))}
-            <strong>{news.sourceRssName}</strong>
-          </div>
-
-          <h1>{news.title}</h1>
-
-          <div className="news-article-info">
-            {news.author && (
-              <span>
-                作者：<span>{news.author}</span>
-              </span>
+    <div
+      style={{
+        display: 'flex',
+        gap: token.marginLG,
+        height: 'calc(100vh - 48px)',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Left column: header fixed + body scrollable */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          minWidth: 0,
+          gap: token.marginLG,
+          overflow: 'hidden',
+        }}
+      >
+        {/* Fixed header: back button + title + meta */}
+        <div style={{ flexShrink: 0 }}>
+          <Flex vertical gap={token.marginXS}>
+            {backUrl && (
+              <Link
+                to={backUrl}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: token.marginXS,
+                  color: token.colorTextSecondary,
+                  fontSize: token.fontSizeSM,
+                  marginBottom: token.marginSM,
+                  width: 'fit-content',
+                }}
+              >
+                <ArrowLeftOutlined />
+                返回
+              </Link>
             )}
-            {publishedAt && <span>{publishedAt}</span>}
-            {news.reportName && <span>来自报告：{news.reportName}</span>}
-          </div>
 
-          {compact && news.summary && (
-            <div className="news-article-lead">{news.summary}</div>
-          )}
-
-          <CleanedHtmlRenderer html={news.structuredContent} />
-
-          {news.sourceUrl && (
-            <a
-              className="news-article-source-link"
-              href={news.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+            <Title
+              level={2}
+              style={{ margin: 0, fontSize: token.fontSizeHeading2 }}
             >
-              <LinkOutlined />
-              阅读原文
-            </a>
-          )}
-        </article>
+              {news.title}
+            </Title>
+
+            <Flex gap={token.marginSM} align="center" wrap="wrap">
+              <Text
+                style={{ fontSize: token.fontSizeSM, color: token.colorTextSecondary }}
+              >
+                来源：{news.sourceRssName}
+              </Text>
+              {news.publishedAt && (
+                <Text
+                  style={{ fontSize: token.fontSizeSM, color: token.colorTextTertiary }}
+                >
+                  发布时间：{news.publishedAt}
+                </Text>
+              )}
+            </Flex>
+          </Flex>
+        </div>
+
+        {/* Scrollable body area */}
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+          <div style={{ maxWidth: 720, margin: '0 auto' }}>
+            <CleanedHtmlRenderer html={news.structuredContent} />
+          </div>
+        </div>
       </div>
 
-      {!compact && showSidebar && (
-        <aside className="news-article-sidecard">
+      {/* Right sidebar: fixed, does not scroll */}
+      {showSidebar && (
+        <div
+          style={{
+            width: 250,
+            flexShrink: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: token.marginMD,
+            alignSelf: 'flex-start',
+          }}
+        >
+          {/* Author info */}
           {news.author && (
-            <>
-              <strong>作者</strong>
-              <span>作者信息：{news.author}</span>
-            </>
+            <div>
+              <Text
+                strong
+                style={{ fontSize: token.fontSizeSM, color: token.colorTextSecondary }}
+              >
+                作者
+              </Text>
+              <div style={{ marginTop: token.marginXS }}>
+                <Text>{news.author}</Text>
+              </div>
+            </div>
           )}
-          {Array.isArray(news.tags) && news.tags.length > 0 && <strong>标签</strong>}
-          <span>来源：{news.sourceRssName}</span>
-          {publishedAt && <span>发布：{publishedAt}</span>}
+
+          {/* Tags */}
+          {Array.isArray(news.tags) && news.tags.length > 0 && (
+            <div>
+              <Text
+                strong
+                style={{ fontSize: token.fontSizeSM, color: token.colorTextSecondary }}
+              >
+                标签
+              </Text>
+              <Flex gap={token.marginXS} wrap="wrap" style={{ marginTop: token.marginXS }}>
+                {news.tags.map((tag) => (
+                  <Tag key={tag}>{tag}</Tag>
+                ))}
+              </Flex>
+            </div>
+          )}
+
+          <Divider style={{ margin: 0 }} />
+
+          {/* Source link */}
           {news.sourceUrl && (
-            <a href={news.sourceUrl} target="_blank" rel="noopener noreferrer">
+            <Button
+              type="link"
+              icon={<LinkOutlined />}
+              href={news.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ padding: 0, justifyContent: 'flex-start' }}
+            >
               查看原文
-            </a>
-          )}
-          {onMarkRead && (
-            <Button
-              icon={<CheckOutlined />}
-              onClick={() => onMarkRead(news.id)}
-              disabled={news.isRead}
-            >
-              {news.isRead ? '已读' : '标记已读'}
             </Button>
           )}
-          {materialAction && (
-            <Button
-              icon={<InboxOutlined />}
-              onClick={() => materialAction(news.id)}
-              disabled={!onToggleMaterialPile && news.inMaterialPile}
-            >
-              {onToggleMaterialPile && news.inMaterialPile
-                ? '移出素材堆'
-                : news.inMaterialPile
-                  ? '已在素材堆'
-                  : '加入素材堆'}
-            </Button>
-          )}
-        </aside>
+
+          {/* Action buttons */}
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {onMarkRead && (
+              <Button
+                icon={<CheckOutlined />}
+                onClick={() => onMarkRead(news.id)}
+                disabled={news.isRead}
+                block
+              >
+                {news.isRead ? '已读' : '标记已读'}
+              </Button>
+            )}
+
+            {onAddToMaterialPile && (
+              <Button
+                icon={<InboxOutlined />}
+                onClick={() => onAddToMaterialPile(news.id)}
+                disabled={news.inMaterialPile}
+                block
+              >
+                {news.inMaterialPile ? '已在素材堆' : '加入素材堆'}
+              </Button>
+            )}
+          </Space>
+        </div>
       )}
     </div>
   );

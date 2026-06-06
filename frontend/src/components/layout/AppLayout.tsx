@@ -1,131 +1,98 @@
-import { Button, Input, Tooltip } from 'antd';
+import { Layout, Menu } from 'antd';
 import {
-  AppstoreOutlined,
-  CheckSquareOutlined,
-  EditOutlined,
+  DashboardOutlined,
+  UnorderedListOutlined,
   FileTextOutlined,
-  MoonOutlined,
-  PlusOutlined,
   ReadOutlined,
-  SearchOutlined,
+  EditOutlined,
+  SendOutlined,
   SettingOutlined,
-  SunOutlined,
-  WifiOutlined,
 } from '@ant-design/icons';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
-import './AppLayout.css';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { SIDER_WIDTH, HEADER_HEIGHT } from '@/utils/constants';
 
-const navItems = [
-  { key: '/', icon: <AppstoreOutlined />, label: '首页' },
-  { key: '/news', icon: <ReadOutlined />, label: '资讯' },
-  { key: '/reports', icon: <FileTextOutlined />, label: '报告' },
-  { key: '/tasks', icon: <CheckSquareOutlined />, label: '任务' },
-  { key: '/drafts', icon: <EditOutlined />, label: '稿件' },
-  { key: '/rss-sources', icon: <WifiOutlined />, label: 'RSS' },
+const menuItems = [
+  { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
+  { key: '/tasks', icon: <UnorderedListOutlined />, label: '任务管理' },
+  { key: '/reports', icon: <FileTextOutlined />, label: '报告管理' },
+  { key: '/news', icon: <ReadOutlined />, label: '新闻管理' },
+  { key: '/drafts', icon: <EditOutlined />, label: '稿件管理' },
+  { key: '/rss-sources', icon: <SendOutlined />, label: 'RSS 源' },
+  { key: '/settings', icon: <SettingOutlined />, label: '设置' },
 ];
-
-const pageTitles: Record<string, string> = {
-  '/': '今日工作台',
-  '/news': '资讯工作台',
-  '/reports': '报告管理',
-  '/tasks': '任务管理',
-  '/drafts': '稿件管理',
-  '/rss-sources': 'RSS 源管理',
-  '/settings': '设置',
-};
 
 export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [darkMode, setDarkMode] = useState(false);
 
-  const activePath = useMemo(() => {
-    if (location.pathname === '/') return '/';
-    return `/${location.pathname.split('/')[1]}`;
-  }, [location.pathname]);
-
-  const pageTitle = pageTitles[activePath] ?? 'RSS Count';
-  const isNewsWorkspace = activePath === '/news';
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = darkMode ? 'dark' : 'light';
-    return () => {
-      delete document.documentElement.dataset.theme;
-    };
-  }, [darkMode]);
+  // 选中当前路径匹配的菜单项
+  const selectedKeys = [location.pathname === '/' ? '/' : `/${location.pathname.split('/')[1]}`];
 
   return (
-    <div className="app-shell">
-      <aside className="app-rail" aria-label="主导航">
-        <button className="app-logo" onClick={() => navigate('/')} aria-label="RSS Count 首页">
-          RC
-        </button>
-
-        <nav className="app-rail-nav">
-          {navItems.map((item) => (
-            <Tooltip key={item.key} title={item.label} placement="right">
-              <button
-                className={`app-rail-item ${activePath === item.key ? 'is-active' : ''}`}
-                onClick={() => navigate(item.key)}
-                aria-label={item.label}
-              >
-                <span className="app-rail-icon">{item.icon}</span>
-                <span>{item.label}</span>
-              </button>
-            </Tooltip>
-          ))}
-        </nav>
-
-        <Tooltip title="设置" placement="right">
-          <button
-            className={`app-rail-item app-rail-settings ${
-              activePath === '/settings' ? 'is-active' : ''
-            }`}
-            onClick={() => navigate('/settings')}
-            aria-label="设置"
+    <Layout style={{ minHeight: '100vh' }}>
+      <Layout.Sider
+        width={SIDER_WIDTH}
+        style={{
+          position: 'sticky',
+          top: 0,
+          height: '100vh',
+          overflow: 'auto',
+          background: '#F8FAFC',
+          borderRight: '1px solid #E5E7EB',
+        }}
+      >
+        <div
+          style={{
+            height: HEADER_HEIGHT,
+            display: 'flex',
+            alignItems: 'center',
+            padding: '0 16px',
+            borderBottom: '1px solid #E5E7EB',
+          }}
+        >
+          <SendOutlined style={{ fontSize: 20, color: '#2563EB' }} />
+          <span
+            style={{
+              marginLeft: 10,
+              fontSize: 16,
+              fontWeight: 600,
+              color: '#111827',
+            }}
           >
-            <span className="app-rail-icon"><SettingOutlined /></span>
-            <span>设置</span>
-          </button>
-        </Tooltip>
-      </aside>
-
-      <header className="app-topbar">
-        <h1>{pageTitle}</h1>
-
-        <Input
-          className="app-global-search"
-          prefix={<SearchOutlined />}
-          placeholder="搜索标题、来源或正文"
-          suffix={<kbd>⌘ K</kbd>}
-          onPressEnter={(event) => {
-            const keyword = event.currentTarget.value.trim();
-            if (keyword) navigate(`/news?q=${encodeURIComponent(keyword)}`);
+            RSS Count
+          </span>
+        </div>
+        <Menu
+          mode="inline"
+          selectedKeys={selectedKeys}
+          items={menuItems}
+          onClick={({ key }) => navigate(key)}
+          style={{
+            background: 'transparent',
+            borderRight: 'none',
+            padding: '8px',
           }}
         />
-
-        <div className="app-topbar-actions">
-          <Tooltip title={darkMode ? '切换浅色模式' : '切换深色模式'}>
-            <Button
-              className="app-icon-button"
-              icon={darkMode ? <SunOutlined /> : <MoonOutlined />}
-              onClick={() => setDarkMode((value) => !value)}
-            />
-          </Tooltip>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => navigate('/tasks')}
-          >
-            创建拉取任务
-          </Button>
-        </div>
-      </header>
-
-      <main className={`app-content ${isNewsWorkspace ? 'app-content--workspace' : ''}`}>
-        <Outlet />
-      </main>
-    </div>
+      </Layout.Sider>
+      <Layout>
+        <Layout.Header
+          style={{
+            height: HEADER_HEIGHT,
+            background: '#FFFFFF',
+            borderBottom: '1px solid #E5E7EB',
+            padding: '0 24px',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          <span style={{ fontSize: 14, color: '#6B7280' }}>
+            RSS 新闻聚合与 AI 分析平台
+          </span>
+        </Layout.Header>
+        <Layout.Content style={{ padding: 24, background: '#FFFFFF' }}>
+          <Outlet />
+        </Layout.Content>
+      </Layout>
+    </Layout>
   );
 }

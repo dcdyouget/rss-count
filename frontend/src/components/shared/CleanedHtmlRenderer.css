@@ -1,8 +1,7 @@
 .news-content-html {
-  line-height: 1.9;
+  line-height: 1.75;
   font-size: 16px;
-  color: var(--rc-text);
-  font-family: "Songti SC", "Noto Serif SC", serif;
+  color: inherit;
   word-wrap: break-word;
   overflow-wrap: break-word;
   max-width: 100%;
@@ -22,9 +21,6 @@
   margin: 1.5em 0 0.5em 0;
   font-weight: 600;
   line-height: 1.3;
-  color: var(--rc-text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Microsoft YaHei", sans-serif;
 }
 
 .news-content-html img {
@@ -42,17 +38,17 @@
 
 .news-content-html figcaption {
   font-size: 14px;
-  color: var(--rc-weak);
+  color: #888;
   margin-top: 0.5em;
 }
 
 .news-content-html blockquote {
   margin: 1em 0;
   padding: 12px 16px;
-  border-left: 3px solid var(--rc-primary);
-  background: var(--rc-input-bg);
+  border-left: 4px solid #2563EB;
+  background: #F8FAFC;
   border-radius: 0 8px 8px 0;
-  color: var(--rc-muted);
+  color: #6B7280;
 }
 
 .news-content-html pre {
@@ -67,7 +63,7 @@
 
 .news-content-html hr {
   border: none;
-  border-top: 1px solid var(--rc-border);
+  border-top: 1px solid #e5e7eb;
   margin: 2em 0;
 }
 
@@ -89,6 +85,6 @@
 
 .news-content-html td,
 .news-content-html th {
-  border: 1px solid var(--rc-border);
+  border: 1px solid #e5e7eb;
   padding: 8px 12px;
 }
